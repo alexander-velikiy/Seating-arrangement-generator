@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Smart Seating - {% block title %}{% endblock %}</title>
+  <link rel="stylesheet" href="/static/base.css">
+</head>
+<body>
+  <nav>
+    <a href="/dashboard">Dashboard</a>
+    <a href="/venues">Venues</a>
+    <a href="/participants">Participants</a>
+    <a href="/arrangements">Arrangements</a>
+    <a href="/export">Export</a>
+    <form method="POST" action="/logout" style="display:inline">
+      <span>{{ user.username }}</span>
+      <button type="submit">Log out</button>
+    </form>
+  </nav>
+
+  <main>
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for category, message in messages %}
+        <p class="flash {{ category }}">{{ message }}</p>
+      {% endfor %}
+    {% endwith %}
+
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>
