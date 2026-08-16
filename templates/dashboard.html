@@ -3,15 +3,13 @@
 {% block content %}
   <h1>Dashboard</h1>
   <p>Welcome, {{ user.username }}.</p>
-  <a href="/arrangements/new" class="btn">+ New Arrangement</a>
-
-  <div class="stat-row">
+    <div class="stat-row">
     <div class="stat-box"><div class="lbl">Arrangements:</div><div class="val">{{ arrangement_count }}</div></div>
     <div class="stat-box"><div class="lbl">Solved:</div><div class="val">{{ solved_count }}</div></div>
     <div class="stat-box"><div class="lbl">Venues:</div><div class="val">{{ venue_count }}</div></div>
     <div class="stat-box"><div class="lbl">Participants:</div><div class="val">{{ participant_total }}</div></div>
   </div>
-
+  <a href="/arrangements/new" class="btn">+ New Arrangement</a>
   <h2>Recent Arrangements</h2>
   {% if recent %}
     <table>

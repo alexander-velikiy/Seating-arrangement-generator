@@ -71,6 +71,7 @@ th, td { border: 1px solid #d0d0d0; padding: 8px; text-align: left; }
 .btn { padding: 6px 12px; background: #1a56db; color: white;
        border: none; cursor: pointer; text-decoration: none; display: inline-block; }
 .btn-danger { background: #cc0000; }
+.btn:hover{ background: #1446b8;} 
 
 .flash { padding: 8px; margin-bottom: 10px; }
 .flash.error { background: #fdd; }
