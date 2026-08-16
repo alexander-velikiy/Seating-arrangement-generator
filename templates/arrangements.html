@@ -1,119 +1,51 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" /><meta name="viewport" content="width=device-width,initial-scale=1.0" />
-  <title>Smart Seating Layout Design and Planner — Arrangements</title>
-  <link rel="stylesheet" href="/static/base.css" />
-</head>
-<body>
-{% from '_sidebar.html' import sidebar %}
-<div class="shell">
-  {{ sidebar(user, 'arrangements') }}
-  <main class="main">
-    <div class="page-header">
-      <div>
-        <h1>Seating Arrangements</h1>
-        <p>Generate and manage CSP-solved seating charts.</p>
-      </div>
-      <a href="/arrangements/new" class="btn btn-primary">+ New Arrangement</a>
-    </div>
+{% extends "base.html" %}
+{% block title %}Arrangements{% endblock %}
+{% block content %}
+  <h1>Seating Arrangements</h1>
+  <a href="/arrangements/new" class="btn">+ New Arrangement</a>
 
-    {% if arrangements %}
-    <div class="card-grid">
-      {% for a in arrangements %}
-      {% set parts = a.participants_json | from_json %}
-      {% set constrs = a.constraints_json | from_json %}
-      <div class="card">
-        <div class="card-header">
-          <span class="status-badge status-{{ a.status }}" style="margin-bottom:6px;display:inline-block;">
-            {% if a.status == 'solved' %}✓ Solved
-            {% elif a.status == 'infeasible' %}✗ Infeasible
-            {% else %}● Unsolved{% endif %}
-          </span>
-          <h3>{{ a.name }}</h3>
-          <div style="font-size:12px;color:var(--muted);margin-top:3px;">
-            {% if a.venue_name %}{{ a.venue_name }}{% else %}<em>No venue</em>{% endif %}
-          </div>
-        </div>
-        <div class="card-body">
-          <div class="stat-row" style="margin-bottom:0;gap:12px;">
-            <div class="stat-box" style="min-width:60px;">
-              <div class="val" style="font-size:16px;">{{ parts | length }}</div>
-              <div class="lbl">Participants</div>
-            </div>
-            <div class="stat-box" style="min-width:60px;">
-              <div class="val" style="font-size:16px;">{{ constrs | length }}</div>
-              <div class="lbl">Constraints</div>
-            </div>
-            {% if a.result_json %}
-            {% set result = a.result_json | from_json %}
-            <div class="stat-box" style="min-width:60px;">
-              <div class="val" style="font-size:16px;color:{% if result.get('violations',[]) | length == 0 %}var(--green){% else %}var(--danger){% endif %}">
-                {{ result.get('violations', []) | length }}
-              </div>
-              <div class="lbl">Violations</div>
-            </div>
-            {% endif %}
-          </div>
-        </div>
-        <div class="card-footer">
-          <a href="/arrangements/{{ a.id }}" class="btn btn-primary btn-sm">Open</a>
-          <a href="/api/arrangements/{{ a.id }}/export" class="btn btn-secondary btn-sm">JSON</a>
-          <button class="btn btn-danger btn-sm"
-                  onclick="confirmDelete({{ a.id }}, '{{ a.name | e }}')">Delete</button>
-        </div>
-      </div>
-      {% endfor %}
-    </div>
-    {% else %}
-    <div class="empty-state">
-      <h3>No arrangements yet</h3>
-      <p>Create your first arrangement to generate a CSP-solved seating chart.</p>
-      <a href="/arrangements/new" class="btn btn-primary">+ New Arrangement</a>
-    </div>
-    {% endif %}
-  </main>
-</div>
+  {% if arrangements %}
+  <table>
+    <tr>
+      <th>Name</th><th>Venue</th><th>Participants</th><th>Constraints</th>
+      <th>Status</th><th>Violations</th><th></th>
+    </tr>
+    {% for a in arrangements %}
+    <tr>
+      <td>{{ a.name }}</td>
+      <td>{{ a.venue_name or '—' }}</td>
+      <td>{{ a.participant_count }}</td>
+      <td>{{ a.constraint_count }}</td>
+      <td>{{ a.status }}</td>
+      <td>{{ a.violation_count if a.violation_count is not none else '—' }}</td>
+      <td>
+        <a href="/arrangements/{{ a.id }}">Open</a>
+        <a href="/api/arrangements/{{ a.id }}/export">JSON</a>
+        <form method="POST" action="/api/arrangements/{{ a.id }}" style="display:inline"
+              onsubmit="return deleteArrangement(event, {{ a.id }})">
+          <button type="submit">Delete</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p>No arrangements yet. <a href="/arrangements/new">Create one</a>.</p>
+  {% endif %}
 
-<div class="modal-overlay" id="deleteModal">
-  <div class="modal">
-    <h3>Delete arrangement?</h3>
-    <p id="deleteModalText">This cannot be undone.</p>
-    <div class="modal-actions">
-      <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
-      <button class="btn btn-danger" id="confirmDeleteBtn">Delete</button>
-    </div>
-  </div>
-</div>
-<div class="toast-stack" id="toastStack"></div>
-
-<script>
-  let pendingId = null;
-  function confirmDelete(id, name) {
-    pendingId = id;
-    document.getElementById('deleteModalText').textContent = `"${name}" will be permanently deleted.`;
-    document.getElementById('deleteModal').classList.add('open');
-  }
-  function closeModal() {
-    document.getElementById('deleteModal').classList.remove('open');
-    pendingId = null;
-  }
-  document.getElementById('confirmDeleteBtn').addEventListener('click', async () => {
-    if (!pendingId) return;
-    const id = pendingId; closeModal();
-    const res = await fetch(`/api/arrangements/${id}`, { method: 'DELETE' });
-    if (res.ok) { toast('Deleted.', 'success'); setTimeout(() => location.reload(), 700); }
-    else toast('Failed to delete.', 'error');
-  });
-  document.getElementById('deleteModal').addEventListener('click', e => {
-    if (e.target === e.currentTarget) closeModal();
-  });
-  function toast(msg, type = 'success') {
-    const el = document.createElement('div');
-    el.className = `toast ${type}`; el.textContent = msg;
-    document.getElementById('toastStack').appendChild(el);
-    setTimeout(() => el.remove(), 3000);
-  }
-</script>
-</body>
-</html>
+  <script>
+    // /api/arrangements/<id> only accepts DELETE, and plain HTML forms
+    // can't send DELETE — so this intercepts the submit and fires a
+    // real DELETE request instead, then reloads the list on success.
+    function deleteArrangement(event, id) {
+      event.preventDefault();
+      if (!confirm('Delete this arrangement?')) return false;
+      fetch(`/api/arrangements/${id}`, { method: 'DELETE' })
+        .then(res => {
+          if (res.ok) location.reload();
+          else alert('Delete failed.');
+        });
+      return false;
+    }
+  </script>
+{% endblock %}

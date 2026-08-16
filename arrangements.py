@@ -1,4 +1,4 @@
-# mnages seating arrangements pages, API, and the endpoint to CSP solve
+# manages seating arrangements pages, API, and the endpoint to CSP solve
 
 import json
 from datetime import datetime
@@ -42,7 +42,21 @@ def arrangements_list():
            ORDER BY a.updated_at DESC""",
         (session["user_id"],),
     ).fetchall()
-    return render_template("arrangements.html", user=user, arrangements=rows)
+
+    # plain dicts with counts already computed, so the template just
+    # displays numbers instead of parsing JSON itself
+    arrangements = []
+    for r in rows:
+        row = dict(r)
+        row["participant_count"] = len(json.loads(r["participants_json"]))
+        row["constraint_count"]  = len(json.loads(r["constraints_json"]))
+        row["violation_count"]   = None
+        if r["result_json"]:
+            result = json.loads(r["result_json"])
+            row["violation_count"] = len(result.get("violations", []))
+        arrangements.append(row)
+
+    return render_template("arrangements.html", user=user, arrangements=arrangements)
 
 
 @arrangements_bp.route("/arrangements/new")
