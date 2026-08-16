@@ -34,9 +34,7 @@
   {% endif %}
 
   <script>
-    // /api/arrangements/<id> only accepts DELETE, and plain HTML forms
-    // can't send DELETE — so this intercepts the submit and fires a
-    // real DELETE request instead, then reloads the list on success.
+    // workaround for delete
     function deleteArrangement(event, id) {
       event.preventDefault();
       if (!confirm('Delete this arrangement?')) return false;

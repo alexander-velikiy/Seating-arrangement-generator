@@ -5,65 +5,84 @@
   <meta name="viewport" content="width=device-width,initial-scale=1.0" />
   <title>Smart Seating - {{ 'Edit: ' + arrangement.name if arrangement else 'New Arrangement' }}</title>
   <style>
-    body { font-family: Arial, sans-serif; margin: 20px; }
-    .layout { display: flex; gap: 24px; }
-    .col { flex: 1; }
-    input, select { padding: 5px; margin-bottom: 8px; }
-    table { border-collapse: collapse; margin-bottom: 12px; }
-    td, th { border: 1px solid #ccc; padding: 5px 8px; font-size: 13px; }
+    body { font-family: Arial, sans-serif; margin: 0; }
+    .app { display: flex; height: 100vh; }
+    .left, .right { width: 260px; flex-shrink: 0; padding: 16px; overflow-y: auto; box-sizing: border-box; }
+    .left { border-right: 1px solid #ccc; }
+    .right { border-left: 1px solid #ccc; }
+    .center { flex: 1; padding: 16px; overflow-y: auto; }
+
+    input, select, textarea { width: 100%; padding: 5px; margin-bottom: 8px; box-sizing: border-box; }
     fieldset { margin-bottom: 16px; }
+
+    .p-row, .c-row { border: 1px solid #ddd; padding: 6px 8px; margin-bottom: 4px; font-size: 13px; }
+    .p-row button, .c-row button { float: right; }
+
+    table.grid { border-collapse: collapse; margin-bottom: 20px; }
+    table.grid td { width: 42px; height: 42px; border: 1px solid #999; text-align: center;
+                    font-size: 9px; vertical-align: middle; word-break: break-all; }
+    td.seat-normal  { background: #e8f0ff; }
+    td.seat-blocked { background: #ddd; color: #999; }
+    td.seat-aisle   { background: #e8fff0; }
+    td.seat-front   { background: #fff8e0; }
+    td.seat-exit    { background: #fff0f0; }
+    td.assigned     { border: 2px solid #1a56db; font-weight: bold; }
+
+    table.result { border-collapse: collapse; }
+    table.result td, table.result th { border: 1px solid #ccc; padding: 5px 8px; }
   </style>
 </head>
 <body>
 
-<a href="/arrangements">&larr; Back to arrangements</a>
-<h1>{{ 'Edit Arrangement' if arrangement else 'New Arrangement' }}</h1>
+<div class="app">
 
-<label>Name</label><br>
-<input type="text" id="arrName" value="{{ arrangement.name if arrangement else '' }}"><br>
+  <aside class="left">
+    <a href="/arrangements">&larr; Back to arrangements</a>
+    <h2>{{ 'Edit Arrangement' if arrangement else 'New Arrangement' }}</h2>
 
-<label>Venue</label><br>
-<select id="venueSelect">
-  <option value="">— Select a venue —</option>
-  {% for v in venues %}
-  <option value="{{ v.id }}" {{ 'selected' if arrangement and arrangement.venue_id == v.id }}>
-    {{ v.name }} ({{ v.rows }}x{{ v.cols }})
-  </option>
-  {% endfor %}
-</select>
+    <label>Name</label>
+    <input type="text" id="arrName" value="{{ arrangement.name if arrangement else '' }}">
 
-<div class="layout">
-  <div class="col">
-    <h2>Participants (<span id="partCount">0</span>)</h2>
-    <table id="participantTable">
-      <tr><th>Name</th><th>Group</th><th>Seat</th><th>Front</th><th>Aisle</th><th></th></tr>
-    </table>
+    <label>Venue</label>
+    <select id="venueSelect" onchange="onVenueChange()">
+      <option value="">— Select a venue —</option>
+      {% for v in venues %}
+      <option value="{{ v.id }}" {{ 'selected' if arrangement and arrangement.venue_id == v.id }}>
+        {{ v.name }} ({{ v.rows }}x{{ v.cols }})
+      </option>
+      {% endfor %}
+    </select>
 
+    <h3>Participants (<span id="partCount">0</span>)</h3>
+    <div id="participantList"></div>
+
+    <h3>Constraints (<span id="constrCount">0</span>)</h3>
+    <div id="constraintList"></div>
+
+    <p>
+      <button onclick="saveArrangement()">Save</button>
+      <button onclick="runSolver()">Run CSP Solver</button>
+    </p>
+    {% if arrangement %}
+    <a href="/api/arrangements/{{ arrangement.id }}/export">Export JSON</a>
+    {% endif %}
+  </aside>
+
+  <main class="center">
+    <div id="gridArea"><p>Select a venue to preview the grid.</p></div>
+    <div id="resultArea"></div>
+  </main>
+
+  <aside class="right">
     <fieldset>
       <legend>Add Participant</legend>
-      <input type="text" id="pName" placeholder="Full name *"><br>
-      <input type="text" id="pGroup" placeholder="Group (optional)"><br>
-      <input type="text" id="pSeat" placeholder="Reserved seat, e.g. R1C3 (optional)"><br>
+      <input type="text" id="pName" placeholder="Full name *">
+      <input type="text" id="pGroup" placeholder="Group (optional)">
+      <input type="text" id="pSeat" placeholder="Reserved seat, e.g. R1C3 (optional)">
       <label><input type="checkbox" id="pFront"> Needs front row</label><br>
-      <label><input type="checkbox" id="pAisle"> Needs aisle seat</label><br>
-      <button onclick="addParticipant()">+ Add Participant</button>
+      <label><input type="checkbox" id="pAisle"> Needs aisle seat</label>
+      <p><button onclick="addParticipant()">+ Add Participant</button></p>
     </fieldset>
-
-    <fieldset>
-      <legend>Import from Roster</legend>
-      <button onclick="loadRoster()">Load my roster</button>
-      <div id="rosterList"></div>
-      <button onclick="importSelectedRoster()" id="importBtn" style="display:none">
-        Add selected
-      </button>
-    </fieldset>
-  </div>
-
-  <div class="col">
-    <h2>Constraints (<span id="constrCount">0</span>)</h2>
-    <table id="constraintTable">
-      <tr><th>Type</th><th>Details</th><th></th></tr>
-    </table>
 
     <fieldset>
       <legend>Add Constraint</legend>
@@ -75,41 +94,49 @@
         <option value="FRONT_ROW">Front row</option>
         <option value="NEAR_AISLE">Near aisle</option>
         <option value="SPECIFIC_SEAT">Specific seat</option>
-      </select><br>
+      </select>
 
       <div id="cPart1Wrap">
-        Participant 1: <select id="cPart1"><option value="">— select —</option></select><br>
+        Participant 1: <select id="cPart1"><option value="">— select —</option></select>
       </div>
       <div id="cPart2Wrap">
-        Participant 2: <select id="cPart2"><option value="">— select —</option></select><br>
+        Participant 2: <select id="cPart2"><option value="">— select —</option></select>
       </div>
       <div id="cGroupWrap" style="display:none">
-        Group name: <input type="text" id="cGroup"><br>
+        Group name: <input type="text" id="cGroup">
       </div>
       <div id="cSeatWrap" style="display:none">
-        Seat ID: <input type="text" id="cSeat" placeholder="e.g. R1C3"><br>
+        Seat ID: <input type="text" id="cSeat" placeholder="e.g. R1C3">
       </div>
-      <button onclick="addConstraint()">+ Add Constraint</button>
+      <p><button onclick="addConstraint()">+ Add Constraint</button></p>
     </fieldset>
-  </div>
+
+    <fieldset>
+      <legend>Import from Roster</legend>
+      <button onclick="loadRoster()">Load my roster</button>
+      <div id="rosterList"></div>
+      <button onclick="importSelectedRoster()" id="importBtn" style="display:none">
+        Add selected
+      </button>
+    </fieldset>
+  </aside>
+
 </div>
-
-<button onclick="saveArrangement()">Save</button>
-<button onclick="runSolver()">Run CSP Solver</button>
-{% if arrangement %}
-<a href="/api/arrangements/{{ arrangement.id }}/export">Export JSON</a>
-{% endif %}
-
-<div id="resultArea" style="margin-top:20px;"></div>
 
 <script>
 const ARR_ID = {{ arrangement.id if arrangement else 'null' }};
+let currentArrId = ARR_ID;
 let participants = [];
 let constraints  = [];
+let currentVenueLayout = null;
+let currentResult = null;
 
 {% if arrangement %}
   participants = {{ arrangement.participants_json | safe }};
   constraints  = {{ arrangement.constraints_json | safe }};
+  {% if arrangement.result_json %}
+    currentResult = {{ arrangement.result_json | safe }};
+  {% endif %}
 {% endif %}
 
 const CTYPE_LABELS = {
@@ -122,24 +149,27 @@ const CTYPE_LABELS = {
   SPECIFIC_SEAT: 'Specific seat',
 };
 
-//    participants   
+//participants   
 
 function renderParticipants() {
-  const table = document.getElementById('participantTable');
-  table.innerHTML = '<tr><th>Name</th><th>Group</th><th>Seat</th><th>Front</th><th>Aisle</th><th></th></tr>';
+  const box = document.getElementById('participantList');
+  box.innerHTML = '';
   participants.forEach((p, i) => {
-    const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td>${p.name}</td>
-      <td>${p.group || '-'}</td>
-      <td>${p.reserved_seat || '-'}</td>
-      <td>${p.needs_front_row ? 'yes' : ''}</td>
-      <td>${p.needs_aisle ? 'yes' : ''}</td>
-      <td><button onclick="removeParticipant(${i})">Remove</button></td>`;
-    table.appendChild(tr);
+    const div = document.createElement('div');
+    div.className = 'p-row';
+    const tags = [
+      p.group ? p.group : null,
+      p.reserved_seat ? 'seat:' + p.reserved_seat : null,
+      p.needs_front_row ? 'front' : null,
+      p.needs_aisle ? 'aisle' : null,
+    ].filter(Boolean).join(', ');
+    div.innerHTML = `<button onclick="removeParticipant(${i})">x</button>
+      <strong>${p.name}</strong>${tags ? '<br><small>' + tags + '</small>' : ''}`;
+    box.appendChild(div);
   });
   document.getElementById('partCount').textContent = participants.length;
   refreshConstraintParticipantSelects();
+  renderGrid();
 }
 
 function addParticipant() {
@@ -167,36 +197,29 @@ function addParticipant() {
 function removeParticipant(i) {
   const name = participants[i].name;
   participants.splice(i, 1);
-  // drop any constraint that referenced this participant, same as
-  // removing a person means constraints about them no longer apply
   constraints = constraints.filter(c => !c.participants || !c.participants.includes(name));
   renderParticipants();
   renderConstraints();
 }
 
-//    constraints   
+//constraints   
 
 function renderConstraints() {
-  const table = document.getElementById('constraintTable');
-  table.innerHTML = '<tr><th>Type</th><th>Details</th><th></th></tr>';
+  const box = document.getElementById('constraintList');
+  box.innerHTML = '';
   constraints.forEach((c, i) => {
     let details = (c.participants || []).join(', ');
     if (c.group)   details += (details ? ' - ' : '') + 'group: ' + c.group;
     if (c.seat_id) details += (details ? ' - ' : '') + 'seat: ' + c.seat_id;
-    const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td>${CTYPE_LABELS[c.type] || c.type}</td>
-      <td>${details}</td>
-      <td><button onclick="removeConstraint(${i})">Remove</button></td>`;
-    table.appendChild(tr);
+    const div = document.createElement('div');
+    div.className = 'c-row';
+    div.innerHTML = `<button onclick="removeConstraint(${i})">x</button>
+      <strong>${CTYPE_LABELS[c.type] || c.type}</strong><br><small>${details}</small>`;
+    box.appendChild(div);
   });
   document.getElementById('constrCount').textContent = constraints.length;
 }
 
-// which fields make sense depends on the constraint type — this is real
-// branching logic, not decoration, since MUST_SIT_TOGETHER needs two
-// participants, SAME_GROUP_TOGETHER needs a group name, SPECIFIC_SEAT
-// needs a seat id, and they're mutually exclusive
 function onConstraintTypeChange() {
   const t = document.getElementById('cType').value;
   const binary = ['MUST_SIT_TOGETHER', 'MUST_NOT_SIT_TOGETHER'].includes(t);
@@ -266,14 +289,58 @@ function removeConstraint(i) {
   renderConstraints();
 }
 
-//    save   
+//grid preview  
 
-// shared by both the Save button and Run Solver — the solver needs the
-// current in-memory state persisted before it can run against it, so
-// this is the one function both paths call rather than duplicating the
-// fetch logic. Returns the arrangement id (existing or newly created),
-// or null if the save failed.
-let currentArrId = ARR_ID;
+async function onVenueChange() {
+  const vid = document.getElementById('venueSelect').value;
+  if (!vid) {
+    currentVenueLayout = null;
+    document.getElementById('gridArea').innerHTML = '<p>Select a venue to preview the grid.</p>';
+    return;
+  }
+  const res = await fetch(`/api/venues/${vid}`);
+  const data = await res.json();
+  currentVenueLayout = data.layout;
+  renderGrid();
+}
+
+function renderGrid() {
+  const area = document.getElementById('gridArea');
+  if (!currentVenueLayout) return;
+
+  const rows = currentVenueLayout.rows;
+  const cols = currentVenueLayout.cols;
+  const seats = currentVenueLayout.seats || {};
+
+  const assign = (currentResult && currentResult.assignment) ? currentResult.assignment : {};
+  const seatToName = {};
+  Object.entries(assign).forEach(([name, sid]) => { seatToName[sid] = name; });
+
+  const table = document.createElement('table');
+  table.className = 'grid';
+  for (let r = 0; r < rows; r++) {
+    const tr = document.createElement('tr');
+    for (let c = 0; c < cols; c++) {
+      const sid = `R${r + 1}C${c + 1}`;
+      const seat = seats[sid] || { type: 'normal' };
+      const td = document.createElement('td');
+      td.className = 'seat-' + seat.type;
+      if (seatToName[sid]) {
+        td.classList.add('assigned');
+        td.textContent = seatToName[sid];
+      } else {
+        td.textContent = sid;
+      }
+      tr.appendChild(td);
+    }
+    table.appendChild(tr);
+  }
+
+  area.innerHTML = '';
+  area.appendChild(table);
+}
+
+// save / solve   
 
 async function persistArrangement() {
   const name = document.getElementById('arrName').value.trim();
@@ -308,7 +375,48 @@ async function saveArrangement() {
   if (!ARR_ID) window.location.href = `/arrangements/${id}`;
 }
 
-//    roster import   
+async function runSolver() {
+  const id = await persistArrangement();
+  if (id === null) return;
+
+  const res = await fetch(`/api/arrangements/${id}/solve`, { method: 'POST' });
+  const data = await res.json();
+
+  if (!res.ok) { alert(data.error || 'Solve failed.'); return; }
+  currentResult = data.result;
+  renderGrid();
+  renderResultSummary(data.result, data.status);
+}
+
+function renderResultSummary(result, status) {
+  const area = document.getElementById('resultArea');
+
+  if (!result || (result.error && !result.assignment)) {
+    area.innerHTML = `<p><strong>No solution found.</strong> ${result ? result.error : ''}</p>`;
+    return;
+  }
+
+  const assign     = result.assignment || {};
+  const violations = result.violations || [];
+
+  let html = `<p><strong>Status: ${status}</strong> — ${Object.keys(assign).length} seated, ${violations.length} violation(s)</p>`;
+
+  if (violations.length) {
+    html += '<p><strong>Violations:</strong></p><ul>';
+    violations.forEach(v => { html += `<li>${v}</li>`; });
+    html += '</ul>';
+  }
+
+  html += '<table class="result"><tr><th>Participant</th><th>Seat</th></tr>';
+  Object.entries(assign).sort(([a], [b]) => a.localeCompare(b)).forEach(([name, seat]) => {
+    html += `<tr><td>${name}</td><td>${seat}</td></tr>`;
+  });
+  html += '</table>';
+
+  area.innerHTML = html;
+}
+
+// roster import   
 
 let rosterData = [];
 
@@ -357,55 +465,16 @@ function importSelectedRoster() {
   alert(`${added} participant(s) added.`);
 }
 
-//    solver   
+//init   
 
-async function runSolver() {
-  const id = await persistArrangement();
-  if (id === null) return;
-
-  const res = await fetch(`/api/arrangements/${id}/solve`, { method: 'POST' });
-  const data = await res.json();
-
-  if (!res.ok) { alert(data.error || 'Solve failed.'); return; }
-  renderResult(data.result, data.status);
-}
-
-function renderResult(result, status) {
-  const area = document.getElementById('resultArea');
-  area.innerHTML = '';
-
-  if (!result || (result.error && !result.assignment)) {
-    area.innerHTML = `<p><strong>No solution found.</strong> ${result ? result.error : ''}</p>`;
-    return;
-  }
-
-  const assign     = result.assignment || {};
-  const violations = result.violations || [];
-
-  let html = `<p><strong>Status: ${status}</strong> — ${Object.keys(assign).length} seated, ${violations.length} violation(s)</p>`;
-
-  if (violations.length) {
-    html += '<p><strong>Violations:</strong></p><ul>';
-    violations.forEach(v => { html += `<li>${v}</li>`; });
-    html += '</ul>';
-  }
-
-  html += '<table><tr><th>Participant</th><th>Seat</th></tr>';
-  Object.entries(assign).sort(([a], [b]) => a.localeCompare(b)).forEach(([name, seat]) => {
-    html += `<tr><td>${name}</td><td>${seat}</td></tr>`;
-  });
-  html += '</table>';
-
-  area.innerHTML = html;
-}
-
-//    init   
 renderParticipants();
 renderConstraints();
 onConstraintTypeChange();
 
-{% if arrangement and arrangement.result_json %}
-  renderResult({{ arrangement.result_json | safe }}, "{{ arrangement.status }}");
+{% if arrangement and arrangement.venue_id %}
+  onVenueChange().then(() => {
+    if (currentResult) renderResultSummary(currentResult, "{{ arrangement.status }}");
+  });
 {% endif %}
 </script>
 </body>

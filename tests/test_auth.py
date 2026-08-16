@@ -1,16 +1,5 @@
 """
-test_auth.py
-============
-Unit tests for the auth module (authentication and authorization).
-
-Tests cover:
-- Password hashing and verification (security-critical, kept close to full)
-- login_required decorator behavior
-- Auth routes (login, register, logout)
-
-Auth route tests assert on redirect responses (302 + Location header)
-rather than following redirects, to avoid template rendering dependencies
-in the test environment.
+Unit tests for the auth module
 """
 
 import pytest

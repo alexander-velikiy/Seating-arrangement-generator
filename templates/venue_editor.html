@@ -1,188 +1,342 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1.0" />
-  <title>Smart Seating - {{ 'Edit: ' + venue.name if venue else 'New Venue' }}</title>
-  <style>
-    body { font-family: Arial, sans-serif; margin: 20px; }
-    .layout { display: flex; gap: 24px; }
-    .panel { width: 220px; flex-shrink: 0; }
-    .panel input, .panel select, .panel textarea { width: 100%; margin-bottom: 8px; padding: 5px; }
-    .tools button { margin: 2px; padding: 5px 8px; }
-    .tools button.active { background: #1a56db; color: white; }
+{% extends "base.html" %}
 
-    table { border-collapse: collapse; }
-    td.seat { width: 32px; height: 32px; border: 1px solid #999; text-align: center;
-              cursor: pointer; font-size: 10px; }
-    td.seat-normal  { background: #e8f0ff; }
-    td.seat-blocked { background: #ddd; color: #999; }
-    td.seat-aisle   { background: #e8fff0; }
-    td.seat-front   { background: #fff8e0; }
-    td.seat-exit    { background: #fff0f0; }
-  </style>
-</head>
-<body>
+{% block title %}
+  {{ 'Edit Venue' if venue else 'New Venue' }}
+{% endblock %}
 
-<a href="/venues">&larr; Back to venues</a>
+{% block content %}
+
 <h1>{{ 'Edit Venue' if venue else 'New Venue' }}</h1>
 
-<div class="layout">
-  <div class="panel">
-    <label>Name</label>
-    <input type="text" id="venueName" value="{{ venue.name if venue else '' }}">
+<div class="card">
 
-    <label>Description</label>
-    <textarea id="venueDesc">{{ venue.description if venue else '' }}</textarea>
+  <label for="venueName">Name</label>
+  <input
+    type="text"
+    id="venueName"
+    value="{{ venue.name if venue else '' }}"
+  >
 
-    <label>Type</label>
-    {% set vtype = venue.venue_type if venue else 'classroom' %}
-    <select id="venueType">
-      <option value="classroom"  {{ 'selected' if vtype=='classroom' }}>Classroom</option>
-      <option value="auditorium" {{ 'selected' if vtype=='auditorium' }}>Auditorium</option>
-      <option value="exam_hall"  {{ 'selected' if vtype=='exam_hall' }}>Exam Hall</option>
-      <option value="conference" {{ 'selected' if vtype=='conference' }}>Conference Room</option>
-      <option value="theater"    {{ 'selected' if vtype=='theater' }}>Theater</option>
-      <option value="event_hall" {{ 'selected' if vtype=='event_hall' }}>Event Hall</option>
-    </select>
+  <label for="venueDesc">Description</label>
+  <textarea id="venueDesc">{{ venue.description if venue else '' }}</textarea>
 
-    <label>Rows</label>
-    <input type="number" id="gridRows" min="1" max="30"
-           value="{{ venue.rows if venue else 5 }}" onchange="buildGrid()">
+  <label for="venueType">Type</label>
 
-    <label>Columns</label>
-    <input type="number" id="gridCols" min="1" max="30"
-           value="{{ venue.cols if venue else 6 }}" onchange="buildGrid()">
+  {% set vtype = venue.venue_type if venue else 'classroom' %}
 
-    <p><strong>Paint tool</strong></p>
-    <div class="tools">
-      <button id="tool-normal"  class="active" onclick="setTool('normal')">Normal</button>
-      <button id="tool-blocked" onclick="setTool('blocked')">Blocked</button>
-      <button id="tool-aisle"   onclick="setTool('aisle')">Aisle</button>
-      <button id="tool-front"   onclick="setTool('front')">Front Row</button>
-      <button id="tool-exit"    onclick="setTool('exit')">Exit</button>
-    </div>
-    <p>Click a seat to apply the selected tool.</p>
+  <select id="venueType">
+    <option value="classroom"  {{ 'selected' if vtype == 'classroom' }}>Classroom</option>
+    <option value="auditorium" {{ 'selected' if vtype == 'auditorium' }}>Auditorium</option>
+    <option value="exam_hall"  {{ 'selected' if vtype == 'exam_hall' }}>Exam Hall</option>
+    <option value="conference" {{ 'selected' if vtype == 'conference' }}>Conference Room</option>
+    <option value="theater"    {{ 'selected' if vtype == 'theater' }}>Theater</option>
+    <option value="event_hall" {{ 'selected' if vtype == 'event_hall' }}>Event Hall</option>
+  </select>
 
-    <button onclick="saveVenue()">Save Venue</button>
-    {% if venue %}
-    <p><a href="/api/venues/{{ venue.id }}/export">Export JSON</a></p>
-    {% endif %}
-  </div>
+  <label for="gridRows">Rows</label>
+  <input
+    type="number"
+    id="gridRows"
+    min="1"
+    max="30"
+    value="{{ venue.rows if venue else 5 }}"
+    onchange="buildGrid()"
+  >
 
-  <div>
-    <table id="seatGrid"></table>
-  </div>
+  <label for="gridCols">Columns</label>
+  <input
+    type="number"
+    id="gridCols"
+    min="1"
+    max="30"
+    value="{{ venue.cols if venue else 6 }}"
+    onchange="buildGrid()"
+  >
+
 </div>
 
-<script>
-const VENUE_ID = {{ venue.id if venue else 'null' }};
-let rows, cols, seats;
-let currentTool = 'normal';
+
+<div class="card">
+
+  <p><strong>Paint Tool</strong></p>
+
+  <button id="tool-normal" class="btn" onclick="setTool('normal')">
+    Normal
+  </button>
+
+  <button id="tool-blocked" class="btn" onclick="setTool('blocked')">
+    Blocked
+  </button>
+
+  <button id="tool-aisle" class="btn" onclick="setTool('aisle')">
+    Aisle
+  </button>
+
+  <button id="tool-front" class="btn" onclick="setTool('front')">
+    Front Row
+  </button>
+
+  <button id="tool-exit" class="btn" onclick="setTool('exit')">
+    Exit
+  </button>
+
+  <p>Click a seat to apply the selected tool.</p>
+
+  <table id="seatGrid"></table>
+
+</div>
+
+
+<button class="btn" onclick="saveVenue()">Save Venue</button>
 
 {% if venue %}
-  const saved = {{ venue.layout_json | safe }};
-  rows = saved.rows;
-  cols = saved.cols;
-  seats = saved.seats || {};
-{% else %}
-  rows = 5;
-  cols = 6;
-  seats = {};
+  <a href="/api/venues/{{ venue.id }}/export">Export JSON</a>
 {% endif %}
 
+
+<style>
+  #seatGrid {
+    width: auto;
+    margin-top: 15px;
+  }
+
+  #seatGrid td.seat {
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    text-align: center;
+    cursor: pointer;
+    font-size: 10px;
+  }
+
+  #seatGrid td.seat-normal {
+    background: #e8f0ff;
+  }
+
+  #seatGrid td.seat-blocked {
+    background: #ddd;
+    color: #999;
+  }
+
+  #seatGrid td.seat-aisle {
+    background: #e8fff0;
+  }
+
+  #seatGrid td.seat-front {
+    background: #fff8e0;
+  }
+
+  #seatGrid td.seat-exit {
+    background: #fff0f0;
+  }
+
+  #venueDesc {
+    width: 100%;
+    min-height: 80px;
+    resize: vertical;
+  }
+
+  #venueName,
+  #venueType,
+  #gridRows,
+  #gridCols {
+    display: block;
+    margin-bottom: 10px;
+  }
+</style>
+
+
+<script>
+
+const VENUE_ID = {{ venue.id if venue else 'null' }};
+
+let rows;
+let cols;
+let seats;
+
+let currentTool = 'normal';
+
+
+{% if venue %}
+
+const saved = {{ venue.layout_json | safe }};
+
+rows = saved.rows;
+cols = saved.cols;
+seats = saved.seats || {};
+
+{% else %}
+
+rows = 5;
+cols = 6;
+seats = {};
+
+{% endif %}
+
+
 function buildGrid(keepExisting = true) {
+
   rows = parseInt(document.getElementById('gridRows').value) || 5;
   cols = parseInt(document.getElementById('gridCols').value) || 6;
 
   const newSeats = {};
+
   for (let r = 0; r < rows; r++) {
+
     for (let c = 0; c < cols; c++) {
+
       const sid = `R${r + 1}C${c + 1}`;
+
       if (keepExisting && seats[sid]) {
+
         newSeats[sid] = seats[sid];
+
       } else {
-        const isFront = (r === 0);
-        const isAisle = (c === 0 || c === cols - 1);
+
+        const isFront = r === 0;
+        const isAisle = c === 0 || c === cols - 1;
+
         newSeats[sid] = {
-          type: isFront ? 'front' : (isAisle ? 'aisle' : 'normal'),
+          type: isFront
+            ? 'front'
+            : (isAisle ? 'aisle' : 'normal'),
+
           is_blocked: false,
           is_aisle: isAisle,
           is_front: isFront,
-          label: '',
+          label: ''
         };
+
       }
     }
   }
+
   seats = newSeats;
+
   renderGrid();
 }
 
+
 function renderGrid() {
+
   const table = document.getElementById('seatGrid');
+
   table.innerHTML = '';
+
   for (let r = 0; r < rows; r++) {
+
     const tr = document.createElement('tr');
+
     for (let c = 0; c < cols; c++) {
+
       const sid = `R${r + 1}C${c + 1}`;
       const seat = seats[sid];
+
       const td = document.createElement('td');
+
       td.className = 'seat seat-' + seat.type;
       td.title = sid;
       td.textContent = sid;
+
       td.onclick = () => paintSeat(sid);
+
       tr.appendChild(td);
     }
+
     table.appendChild(tr);
   }
 }
 
+
 function paintSeat(sid) {
+
   seats[sid].type = currentTool;
-  seats[sid].is_blocked = (currentTool === 'blocked');
+  seats[sid].is_blocked = currentTool === 'blocked';
+
   renderGrid();
 }
 
-function setTool(t) {
-  currentTool = t;
-  document.querySelectorAll('.tools button').forEach(b => b.classList.remove('active'));
-  document.getElementById('tool-' + t).classList.add('active');
+
+function setTool(tool) {
+
+  currentTool = tool;
+
+  document
+    .querySelectorAll('#tool-normal, #tool-blocked, #tool-aisle, #tool-front, #tool-exit')
+    .forEach(button => button.classList.remove('active'));
+
+  document
+    .getElementById('tool-' + tool)
+    .classList.add('active');
 }
 
+
 async function saveVenue() {
-  const name = document.getElementById('venueName').value.trim();
-  if (!name) { alert('Enter a venue name.'); return; }
+
+  const name = document
+    .getElementById('venueName')
+    .value
+    .trim();
+
+  if (!name) {
+    alert('Enter a venue name.');
+    return;
+  }
 
   const payload = {
-    name,
-    description: document.getElementById('venueDesc').value.trim(),
-    venue_type: document.getElementById('venueType').value,
-    rows, cols, seats,
+    name: name,
+    description: document
+      .getElementById('venueDesc')
+      .value
+      .trim(),
+
+    venue_type: document
+      .getElementById('venueType')
+      .value,
+
+    rows: rows,
+    cols: cols,
+    seats: seats
   };
 
   const method = VENUE_ID ? 'PUT' : 'POST';
-  const url    = VENUE_ID ? `/api/venues/${VENUE_ID}` : '/api/venues';
+
+  const url = VENUE_ID
+    ? `/api/venues/${VENUE_ID}`
+    : '/api/venues';
 
   const res = await fetch(url, {
-    method,
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
+    method: method,
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(payload)
   });
 
   if (res.ok) {
+
     const data = await res.json();
+
     alert('Venue saved.');
-    if (!VENUE_ID) window.location.href = `/venues/${data.id}/edit`;
+
+    if (!VENUE_ID) {
+      window.location.href = `/venues/${data.id}/edit`;
+    }
+
   } else {
+
     alert('Save failed.');
+
   }
 }
+
 
 if (Object.keys(seats).length === 0) {
   buildGrid(false);
 } else {
   renderGrid();
 }
+
 </script>
-</body>
-</html>
+
+{% endblock %}

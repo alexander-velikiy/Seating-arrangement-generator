@@ -14,10 +14,10 @@
         <td>{{ v.rows }}x{{ v.cols }}</td>
         <td>
           <a href="/venues/{{ v.id }}/edit">Edit</a>
-          <form method="POST" action="/api/venues/{{ v.id }}" style="display:inline"
-                onsubmit="return confirm('Delete this venue?')">
-            <input type="hidden" name="_method" value="DELETE">
-            <button type="submit">Delete</button>
+          <form method="POST" action="/api/venues/{{ v.id }}"
+              onsubmit="return deleteVenue(event, {{ v.id }})">
+             <button type="submit">Delete</button>
+          </form>
           </form>
         </td>
       </tr>
@@ -26,4 +26,19 @@
   {% else %}
     <p>No venues yet.</p>
   {% endif %}
+
+<script>
+    // workaround for delete
+  function deleteVenue(event, id) {
+   event.preventDefault();
+   if (!confirm('Delete this venue?')) return false;
+    fetch(`/api/venues/${id}`, { method: 'DELETE' })
+      .then(res => {
+       if (res.ok) location.reload();
+        else alert('Delete failed.');
+      });
+  return false;
+}
+
+</script>
 {% endblock %}

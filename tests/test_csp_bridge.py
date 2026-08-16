@@ -1,18 +1,5 @@
 """
-test_csp_bridge.py
-==================
-Unit tests for the csp_bridge module (adapter layer).
-
-Scope note: constraint-type mapping is a flat string->enum lookup, not
-branching logic, so testing all 8 types individually was redundant —
-three representative shapes (pairwise, group, seat-based) plus the
-invalid-input case cover the actual risk (a typo'd or missing map entry).
-
-Tests cover:
-- Building CSP layout from venue data
-- Building CSP participants from JSON data
-- Building CSP constraints from JSON data (representative types + invalid input)
-- Running the CSP solver end-to-end
+Unit tests for the csp_bridge module
 """
 
 import pytest

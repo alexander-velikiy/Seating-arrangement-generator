@@ -1,19 +1,5 @@
 """
-test_seating_csp.py
-===================
-Unit tests for the seating_csp module (CSP solver core).
-
-Scope note: dataclass field-storage tests (Participant/Constraint/Seat)
-were intentionally dropped — if those fields were broken, the solver
-tests below would fail immediately anyway, so they added latency
-without independent coverage.
-
-Tests cover:
-- GridLayout construction, aisle/blocked-seat handling, adjacency, neighbors
-- SeatingCSP: domain init, constraint solving (all constraint types), edge cases
-- Post-hoc constraint verification, including the documented FRONT_ROW gap
-  (FRONT_ROW is only enforced in _verify, not during backtracking search —
-  needs_front_row on Participant is the path that's enforced during search)
+Unit tests for the seating_csp module
 """
 
 import pytest
