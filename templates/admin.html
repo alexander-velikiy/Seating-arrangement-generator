@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" /><meta name="viewport" content="width=device-width,initial-scale=1.0" />
+  <title>Smart Seating Layout Design and Planner — Admin</title>
+  <link rel="stylesheet" href="/static/base.css" />
+  <style>
+    .toolbar { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; gap:12px; }
+    .search-wrap input { max-width:280px; }
+    .row-link { cursor:pointer; }
+    .row-link:hover td { background:#fafafa; }
+    .pending-pill { font-size:10px; color:#7a5a00; background:#fff8e0; border:1px solid #e0c860;
+      border-radius:3px; padding:1px 5px; margin-left:6px; }
+    .role-badge { padding:1px 6px; border-radius:3px; font-size:11px; font-weight:700; border:1px solid; }
+    .role-badge.admin   { background:#e8f0ff; color:var(--accent); border-color:#b3d0ff; }
+    .role-badge.planner { background:var(--surface); color:var(--muted); border-color:var(--border); }
+
+    /* detail panel */
+    .detail-overlay { position:fixed; inset:0; z-index:500; background:rgba(0,0,0,.45);
+      display:flex; align-items:flex-start; justify-content:flex-end;
+      opacity:0; pointer-events:none; transition:opacity .15s; }
+    .detail-overlay.open { opacity:1; pointer-events:all; }
+    .detail-panel { width:420px; max-width:92vw; height:100vh; background:#fff;
+      border-left:1px solid var(--border); overflow-y:auto; padding:20px; }
+    .detail-panel h2 { font-size:16px; font-weight:700; margin-bottom:2px; }
+    .detail-panel .close-btn { float:right; background:none; border:1px solid var(--border);
+      border-radius:var(--radius); padding:3px 9px; cursor:pointer; font-size:12px; }
+    .detail-section { margin-top:20px; padding-top:16px; border-top:1px solid var(--border); }
+    .detail-section h3 { font-size:12px; font-weight:700; text-transform:uppercase;
+      letter-spacing:.06em; color:var(--muted); margin-bottom:10px; }
+    .kv-row { display:flex; justify-content:space-between; font-size:13px; padding:3px 0; }
+    .kv-row span:first-child { color:var(--muted); }
+    .btn-row { display:flex; gap:6px; margin-top:12px; flex-wrap:wrap; }
+    .layout-card { border:1px solid var(--border); border-radius:var(--radius);
+      padding:10px 12px; margin-bottom:8px; }
+    .layout-card-top { display:flex; justify-content:space-between; align-items:center; gap:8px; }
+    .layout-name { font-size:13px; font-weight:600; }
+    .layout-meta { font-size:11px; color:var(--muted); margin-top:2px; }
+    .layout-actions { display:flex; gap:5px; margin-top:8px; }
+    .empty-hint { font-size:12px; color:var(--muted); padding:12px 0; }
+  </style>
+</head>
+<body>
+{% from '_sidebar.html' import sidebar %}
+<div class="shell">
+  {{ sidebar(user, 'admin') }}
+  <main class="main">
+    <div class="page-header">
+      <div>
+        <h1>Admin Panel</h1>
+        <p>Click a participant to manage their account and seating layouts.</p>
+      </div>
+    </div>
+
+    <div class="toolbar">
+      <span class="text-muted" style="font-size:13px;">
+        <span id="statCount">0</span> participant<span id="statPlural">s</span>
+      </span>
+      <div class="search-wrap">
+        <input type="text" id="searchInput" placeholder="Search by name or owner…" oninput="renderTable()" />
+      </div>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Name</th><th>Owner</th><th>Group</th><th>Requirements</th></tr>
+        </thead>
+        <tbody id="tableBody"></tbody>
+      </table>
+    </div>
+  </main>
+</div>
+
+<!-- detail panel -->
+<div class="detail-overlay" id="detailOverlay" onclick="if(event.target===this)closeDetail()">
+  <div class="detail-panel">
+    <button class="close-btn" onclick="closeDetail()">Close</button>
+    <h2 id="dName">—</h2>
+    <div class="text-muted" style="font-size:12px;" id="dMeta"></div>
+
+    <div class="detail-section">
+      <h3>Account</h3>
+      <div class="kv-row"><span>Username</span><span id="aUsername">—</span></div>
+      <div class="kv-row"><span>Email</span><span id="aEmail">—</span></div>
+      <div class="kv-row"><span>Role</span><span id="aRole">—</span></div>
+      <div class="btn-row">
+        <button class="btn btn-secondary btn-sm" onclick="resetPassword()">Reset Password</button>
+        <button class="btn btn-danger btn-sm" id="deleteAccountBtn" onclick="confirmDeleteAccount()">Delete Account</button>
+      </div>
+    </div>
+
+    <div class="detail-section">
+      <h3>Layouts</h3>
+      <div id="layoutList"></div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="confirmModal">
+  <div class="modal">
+    <h3 id="confirmTitle">Are you sure?</h3>
+    <p id="confirmText">This cannot be undone.</p>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeConfirm()">Cancel</button>
+      <button class="btn btn-danger" id="confirmBtn">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast-stack" id="toastStack"></div>
+
+<script>
+let participants = {{ participants | tojson }};
+let activeDetail = null; // { participantId, ownerId }
+
+function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+function renderTable(){
+  const q = (document.getElementById('searchInput').value||'').toLowerCase();
+  const list = participants.filter(p =>
+    p.name.toLowerCase().includes(q) || (p.owner_username||'').toLowerCase().includes(q));
+  document.getElementById('statCount').textContent = list.length;
+  document.getElementById('statPlural').textContent = list.length===1 ? '' : 's';
+
+  const tb = document.getElementById('tableBody');
+  if(!list.length){
+    tb.innerHTML = '<tr><td colspan="4" style="text-align:center;padding:28px;color:var(--muted);">No participants found.</td></tr>';
+    return;
+  }
+  tb.innerHTML = list.map(p => {
+    const tags = [
+      p.needs_front_row?'<span class="tag tag-front">Front</span>':'',
+      p.needs_aisle?'<span class="tag tag-aisle">Aisle</span>':''
+    ].join(' ');
+    return `<tr class="row-link" onclick="openDetail(${p.id})">
+      <td><strong>${esc(p.name)}</strong></td>
+      <td class="text-muted" style="font-size:12px;">${esc(p.owner_username)}</td>
+      <td class="text-muted" style="font-size:12px;">${esc(p.group_name||'—')}</td>
+      <td>${tags||'<span style="color:var(--muted);font-size:12px;">None</span>'}</td>
+    </tr>`;
+  }).join('');
+}
+
+async function openDetail(pid){
+  let data;
+  try {
+    const res = await fetch(`/api/admin/participants/${pid}`);
+    data = await res.json();
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  } catch(e) { toast(e.message, 'error'); return; }
+
+  activeDetail = { participantId: pid, ownerId: data.owner.id };
+
+  document.getElementById('dName').textContent = data.participant.name;
+  const tags = [
+    data.participant.group_name ? `group: ${data.participant.group_name}` : '',
+    data.participant.needs_front_row ? 'front row' : '',
+    data.participant.needs_aisle ? 'aisle' : '',
+  ].filter(Boolean).join(' · ');
+  document.getElementById('dMeta').textContent = tags || 'No special requirements';
+
+  document.getElementById('aUsername').innerHTML =
+    esc(data.owner.username) + (data.owner.force_password_change ? '<span class="pending-pill">pw pending</span>' : '');
+  document.getElementById('aEmail').textContent = data.owner.email;
+  document.getElementById('aRole').innerHTML = `<span class="role-badge ${data.owner.role}">${data.owner.role}</span>`;
+
+  const delBtn = document.getElementById('deleteAccountBtn');
+  delBtn.style.display = (data.owner.username === 'admin') ? 'none' : '';
+
+  renderLayouts(data.layouts);
+  document.getElementById('detailOverlay').classList.add('open');
+}
+
+function renderLayouts(layouts){
+  const el = document.getElementById('layoutList');
+  if (!layouts.length) {
+    el.innerHTML = '<div class="empty-hint">Not seated in any arrangement yet.</div>';
+    return;
+  }
+  el.innerHTML = layouts.map(l => `
+    <div class="layout-card" id="layout-${l.id}">
+      <div class="layout-card-top">
+        <div>
+          <div class="layout-name">${esc(l.name)}</div>
+          <div class="layout-meta">${esc(l.venue_name || 'No venue')} · <span class="status-badge status-${l.status}">${l.status}</span></div>
+        </div>
+      </div>
+      <div class="layout-actions">
+        <a class="btn btn-secondary btn-sm" href="/api/admin/arrangements/${l.id}/export">JSON</a>
+        ${l.downloadable
+          ? `<a class="btn btn-secondary btn-sm" href="/api/admin/arrangements/${l.id}/image.jpeg">JPEG</a>`
+          : `<span class="btn btn-secondary btn-sm" style="opacity:.4;cursor:not-allowed;" title="Not solved yet">JPEG</span>`}
+        <button class="btn btn-danger btn-sm" onclick="deleteLayout(${l.id})">Delete</button>
+      </div>
+    </div>`).join('');
+}
+
+function closeDetail(){
+  document.getElementById('detailOverlay').classList.remove('open');
+  activeDetail = null;
+}
+
+//    account actions   
+async function resetPassword(){
+  if (!activeDetail) return;
+  try {
+    const res = await fetch(`/api/admin/users/${activeDetail.ownerId}/reset-password`, { method:'POST' });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    toast(`New password for ${data.username}: ${data.temp_password} (copy this now — shown once)`, 'info');
+    document.getElementById('aUsername').innerHTML = esc(data.username) + '<span class="pending-pill">pw pending</span>';
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+function confirmDeleteAccount(){
+  if (!activeDetail) return;
+  showConfirm('Delete this account?',
+    'The user and all their venues, participants, and arrangements will be permanently deleted.',
+    async () => {
+      try {
+        const res = await fetch(`/api/admin/users/${activeDetail.ownerId}`, { method:'DELETE' });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+        participants = participants.filter(p => p.owner_username !== document.getElementById('aUsername').textContent.trim());
+        closeDetail(); renderTable();
+        toast('Account deleted.', 'success');
+      } catch(e) { toast(e.message, 'error'); }
+    });
+}
+
+//    layout actions   
+function deleteLayout(aid){
+  showConfirm('Delete this layout?', 'This cannot be undone.', async () => {
+    try {
+      const res = await fetch(`/api/admin/arrangements/${aid}`, { method:'DELETE' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      const card = document.getElementById(`layout-${aid}`);
+      if (card) card.remove();
+      toast('Layout deleted.', 'success');
+    } catch(e) { toast(e.message, 'error'); }
+  });
+}
+
+//    shared confirm modal   
+let pendingConfirmAction = null;
+function showConfirm(title, text, onConfirm){
+  document.getElementById('confirmTitle').textContent = title;
+  document.getElementById('confirmText').textContent = text;
+  pendingConfirmAction = onConfirm;
+  document.getElementById('confirmModal').classList.add('open');
+}
+function closeConfirm(){
+  document.getElementById('confirmModal').classList.remove('open');
+  pendingConfirmAction = null;
+}
+document.getElementById('confirmBtn').addEventListener('click', () => {
+  const action = pendingConfirmAction; closeConfirm();
+  if (action) action();
+});
+
+function toast(msg, type='success'){
+  const el = document.createElement('div');
+  el.className = `toast ${type}`; el.textContent = msg;
+  document.getElementById('toastStack').appendChild(el);
+  setTimeout(() => el.remove(), type === 'info' ? 8000 : 3000);
+}
+
+renderTable();
+</script>
+</body>
+</html>

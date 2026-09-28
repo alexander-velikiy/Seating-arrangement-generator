@@ -53,14 +53,37 @@ def login_required(f):
         if "user_id" not in session:
             flash("Please log in to continue.", "info")
             return redirect(url_for("auth.auth_page"))
+        # admin's forced first-login password change gates everything else
+        if session.get("force_password_change") and request.endpoint != "auth.change_password":
+            flash("Please set a new password before continuing.", "info")
+            return redirect(url_for("auth.change_password"))
         return f(*args, **kwargs)
     return decorated
+
+
+def admin_required(f):
+    # stack under @login_required — this only checks role, not session presence
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if session.get("role") != "admin":
+            flash("Admin access required.", "error")
+            return redirect(url_for("dashboard.dashboard"))
+        return f(*args, **kwargs)
+    return decorated
+
+
+def _post_login_redirect():
+    if session.get("force_password_change"):
+        return redirect(url_for("auth.change_password"))
+    if session.get("role") == "admin":
+        return redirect(url_for("admin.admin_page"))
+    return redirect(url_for("dashboard.dashboard"))
 
 
 @auth_bp.route("/auth", methods=["GET", "POST"])
 def auth_page():
     if "user_id" in session:
-        return redirect(url_for("dashboard.dashboard"))
+        return _post_login_redirect()
 
     if request.method == "POST":
         identifier = request.form.get("identifier", "").strip()
@@ -75,7 +98,8 @@ def auth_page():
             session["user_id"]  = user["id"]
             session["username"] = user["username"]
             session["role"]     = user["role"]
-            return redirect(url_for("dashboard.dashboard"))
+            session["force_password_change"] = bool(user["force_password_change"])
+            return _post_login_redirect()
         flash("Invalid credentials. Please try again.", "error")
         return redirect(url_for("auth.auth_page"))
 
@@ -85,7 +109,7 @@ def auth_page():
 @auth_bp.route("/register", methods=["GET", "POST"])
 def register_page():
     if "user_id" in session:
-        return redirect(url_for("dashboard.dashboard"))
+        return _post_login_redirect()
 
     if request.method == "POST":
         username = request.form.get("username", "").strip()
@@ -121,6 +145,36 @@ def register_page():
             return redirect(url_for("auth.register_page"))
 
     return render_template("register.html")
+
+
+@auth_bp.route("/change-password", methods=["GET", "POST"])
+@login_required
+def change_password():
+    if request.method == "POST":
+        password = request.form.get("password", "")
+        confirm  = request.form.get("confirm", "")
+
+        if password != confirm:
+            flash("Passwords do not match.", "error")
+            return redirect(url_for("auth.change_password"))
+
+        pw_error = validate_password(password)
+        if pw_error:
+            flash(pw_error, "error")
+            return redirect(url_for("auth.change_password"))
+
+        db = get_db()
+        db.execute(
+            "UPDATE users SET password = ?, force_password_change = 0 WHERE id = ?",
+            (hash_password(password), session["user_id"]),
+        )
+        db.commit()
+        session["force_password_change"] = False
+        flash("Password updated.", "success")
+        return redirect(url_for("admin.admin_page") if session.get("role") == "admin"
+                         else url_for("dashboard.dashboard"))
+
+    return render_template("change_password.html")
 
 
 @auth_bp.route("/logout", methods=["POST"])

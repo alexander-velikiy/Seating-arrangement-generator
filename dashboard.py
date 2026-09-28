@@ -13,6 +13,8 @@ dashboard_bp = Blueprint("dashboard", __name__)
 @dashboard_bp.route("/")
 def index():
     if "user_id" in session:
+        if session.get("role") == "admin":
+            return redirect(url_for("admin.admin_page"))
         return redirect(url_for("dashboard.dashboard"))
     return redirect(url_for("auth.auth_page"))
 

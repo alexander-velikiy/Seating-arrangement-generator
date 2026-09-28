@@ -316,3 +316,15 @@ def export_arrangement_image(arr_id, fmt):
         mimetype=mime,
         headers={"Content-Disposition": f'attachment; filename="{fname}"'},
     )
+
+#sample csv download
+@export_bp.route("/api/export/participants_template.csv")
+@login_required
+def export_participants_template():
+    buf = io.StringIO()
+    csv.writer(buf).writerow(["name", "group", "needs_front_row", "needs_aisle", "notes"])
+    return Response(
+        buf.getvalue(),
+        mimetype="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="participants_template.csv"'},
+    )

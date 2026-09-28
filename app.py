@@ -15,6 +15,7 @@ from venues import venues_bp
 from participants import participants_bp
 from arrangements import arrangements_bp
 from export_routes import export_bp
+from admin import admin_bp
 
 
 def create_app() -> Flask:
@@ -32,6 +33,7 @@ def create_app() -> Flask:
     app.register_blueprint(participants_bp)
     app.register_blueprint(arrangements_bp)
     app.register_blueprint(export_bp)
+    app.register_blueprint(admin_bp)
 
     # uptime check
     @app.route("/api/health")

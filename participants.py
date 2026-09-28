@@ -1,5 +1,7 @@
 # the global roster page + its API
 
+import csv
+import io
 import sqlite3
 from datetime import datetime
 
@@ -263,3 +265,72 @@ def api_participant_delete(pid):
     db.execute("DELETE FROM participants WHERE id = ?", (pid,))
     db.commit()
     return jsonify({"deleted": pid})
+# csv import. same columns the export writes (name, group, ...)
+_TRUTHY = {"1", "yes", "y", "true", "x"}
+
+
+def _truthy(v):
+    return 1 if str(v or "").strip().lower() in _TRUTHY else 0
+
+
+@participants_bp.route("/participants/import", methods=["POST"])
+@login_required
+def participants_import():
+    back = redirect(url_for("participants.participants_list"))
+
+    f = request.files.get("file")
+    if not f or not f.filename:
+        flash("Choose a CSV file first.", "error")
+        return back
+    try:
+        text = f.read().decode("utf-8-sig")  # utf-8-sig strips the BOM Excel adds
+    except UnicodeDecodeError:
+        flash("File must be UTF-8 encoded.", "error")
+        return back
+
+    reader = csv.DictReader(io.StringIO(text))
+    if not reader.fieldnames:
+        flash("That file is empty.", "error")
+        return back
+    reader.fieldnames = [h.strip().lower() for h in reader.fieldnames]
+    if "name" not in reader.fieldnames:
+        flash("CSV needs a 'name' column.", "error")
+        return back
+
+    db      = get_db()
+    now     = datetime.utcnow().isoformat()
+    added   = 0
+    skipped = []
+
+    for row in reader:
+        name = (row.get("name") or "").strip()
+        if not name:
+            skipped.append(f"line {reader.line_num}: missing name")
+            continue
+        group = (row.get("group") or row.get("group_name") or "").strip()
+        try:
+            db.execute(
+                """INSERT INTO participants
+                   (user_id, name, group_name, needs_front_row, needs_aisle, notes, created_at)
+                   VALUES (?,?,?,?,?,?,?)""",
+                (
+                    session["user_id"], name, group,
+                    _truthy(row.get("needs_front_row")),
+                    _truthy(row.get("needs_aisle")),
+                    (row.get("notes") or "").strip(),
+                    now,
+                ),
+            )
+            added += 1
+        except sqlite3.IntegrityError:
+            skipped.append(f"line {reader.line_num}: '{name}' already exists")
+
+    db.commit()
+
+    msg = f"Imported {added} participant{'s' if added != 1 else ''}."
+    if skipped:
+        msg += f" Skipped {len(skipped)}: " + "; ".join(skipped[:3])
+        if len(skipped) > 3:
+            msg += "…"
+    flash(msg, "success" if added else "info")
+    return back

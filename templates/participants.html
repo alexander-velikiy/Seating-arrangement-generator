@@ -2,6 +2,11 @@
 {% block title %}Participants{% endblock %}
 {% block content %}
   <h1>Participant Roster</h1>
+  <form method="POST" action="/participants/import" enctype="multipart/form-data">
+    <input type="file" name="file" accept=".csv,text/csv" required>
+    <button type="submit">Import CSV</button>
+    <a href="/api/export/participants_template.csv">Download template</a>
+  </form>
 
   <div class="stat-row">
     <div class="stat-box"><div class="val">{{ stats.total }}</div><div class="lbl">Total</div></div>
