@@ -33,7 +33,7 @@
     <option value="event_hall" {{ 'selected' if vtype == 'event_hall' }}>Event Hall</option>
   </select>
 
-  <label for="gridRows">Rows</label>
+  <label for="gridRows">Rows (floor 1)</label>
   <input
     type="number"
     id="gridRows"
@@ -43,7 +43,7 @@
     onchange="buildGrid()"
   >
 
-  <label for="gridCols">Columns</label>
+  <label for="gridCols">Columns (floor 1)</label>
   <input
     type="number"
     id="gridCols"
@@ -52,6 +52,13 @@
     value="{{ venue.cols if venue else 6 }}"
     onchange="buildGrid()"
   >
+
+  <label>Floor 1 name</label>
+  <input type="text" id="floor1Name" onchange="floors[0].name = this.value; renderGrid()">
+
+  <p><strong>Extra floors</strong> (balcony, mezzanine...)</p>
+  <div id="floorList"></div>
+  <button class="btn" type="button" onclick="addFloor()">Add floor</button>
 
 </div>
 
@@ -82,7 +89,7 @@
 
   <p>Click a seat to apply the selected tool.</p>
 
-  <table id="seatGrid"></table>
+  <div id="seatGrids"></div>
 
 </div>
 
@@ -95,12 +102,21 @@
 
 
 <style>
-  #seatGrid {
+  .floor-grid {
     width: auto;
     margin-top: 15px;
   }
 
-  #seatGrid td.seat {
+  .floor-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 8px;
+  }
+
+  .floor-row input[type=number] { width: 70px; }
+
+  .floor-grid td.seat {
     width: 40px;
     height: 40px;
     padding: 0;
@@ -109,24 +125,24 @@
     font-size: 10px;
   }
 
-  #seatGrid td.seat-normal {
+  .floor-grid td.seat-normal {
     background: #e8f0ff;
   }
 
-  #seatGrid td.seat-blocked {
+  .floor-grid td.seat-blocked {
     background: #ddd;
     color: #999;
   }
 
-  #seatGrid td.seat-aisle {
+  .floor-grid td.seat-aisle {
     background: #e8fff0;
   }
 
-  #seatGrid td.seat-front {
+  .floor-grid td.seat-front {
     background: #fff8e0;
   }
 
-  #seatGrid td.seat-exit {
+  .floor-grid td.seat-exit {
     background: #fff0f0;
   }
 
@@ -153,6 +169,7 @@ const VENUE_ID = {{ venue.id if venue else 'null' }};
 let rows;
 let cols;
 let seats;
+let floors;  // [{name, rows, cols}], floors[0] is what rows / cols hold
 
 let currentTool = 'normal';
 
@@ -164,52 +181,66 @@ const saved = {{ venue.layout_json | safe }};
 rows = saved.rows;
 cols = saved.cols;
 seats = saved.seats || {};
+// venues saved before multi-floor support have no floors key
+floors = saved.floors || [{ name: 'Floor 1', rows: rows, cols: cols }];
 
 {% else %}
 
 rows = 5;
 cols = 6;
 seats = {};
+floors = [{ name: 'Floor 1', rows: 5, cols: 6 }];
 
 {% endif %}
+
+
+// floor 1 keeps plain ids (R1C1), upper floors get a prefix (F2R1C1)
+function seatId(f, r, c) {
+  return f === 0 ? `R${r + 1}C${c + 1}` : `F${f + 1}R${r + 1}C${c + 1}`;
+}
 
 
 function buildGrid(keepExisting = true) {
 
   rows = parseInt(document.getElementById('gridRows').value) || 5;
   cols = parseInt(document.getElementById('gridCols').value) || 6;
+  floors[0].rows = rows;
+  floors[0].cols = cols;
 
   const newSeats = {};
 
-  for (let r = 0; r < rows; r++) {
+  floors.forEach((fl, f) => {
 
-    for (let c = 0; c < cols; c++) {
+    for (let r = 0; r < fl.rows; r++) {
 
-      const sid = `R${r + 1}C${c + 1}`;
+      for (let c = 0; c < fl.cols; c++) {
 
-      if (keepExisting && seats[sid]) {
+        const sid = seatId(f, r, c);
 
-        newSeats[sid] = seats[sid];
+        if (keepExisting && seats[sid]) {
 
-      } else {
+          newSeats[sid] = seats[sid];
 
-        const isFront = r === 0;
-        const isAisle = c === 0 || c === cols - 1;
+        } else {
 
-        newSeats[sid] = {
-          type: isFront
-            ? 'front'
-            : (isAisle ? 'aisle' : 'normal'),
+          const isFront = r === 0;
+          const isAisle = c === 0 || c === fl.cols - 1;
 
-          is_blocked: false,
-          is_aisle: isAisle,
-          is_front: isFront,
-          label: ''
-        };
+          newSeats[sid] = {
+            type: isFront
+              ? 'front'
+              : (isAisle ? 'aisle' : 'normal'),
 
+            is_blocked: false,
+            is_aisle: isAisle,
+            is_front: isFront,
+            label: ''
+          };
+
+        }
       }
     }
-  }
+  });
 
   seats = newSeats;
 
@@ -219,32 +250,116 @@ function buildGrid(keepExisting = true) {
 
 function renderGrid() {
 
-  const table = document.getElementById('seatGrid');
+  const wrap = document.getElementById('seatGrids');
 
-  table.innerHTML = '';
+  wrap.innerHTML = '';
 
-  for (let r = 0; r < rows; r++) {
+  floors.forEach((fl, f) => {
 
-    const tr = document.createElement('tr');
+    const heading = document.createElement('p');
+    heading.innerHTML = '<strong></strong>';
+    heading.firstChild.textContent = fl.name || `Floor ${f + 1}`;
+    wrap.appendChild(heading);
 
-    for (let c = 0; c < cols; c++) {
+    const table = document.createElement('table');
+    table.className = 'floor-grid';
 
-      const sid = `R${r + 1}C${c + 1}`;
-      const seat = seats[sid];
+    for (let r = 0; r < fl.rows; r++) {
 
-      const td = document.createElement('td');
+      const tr = document.createElement('tr');
 
-      td.className = 'seat seat-' + seat.type;
-      td.title = sid;
-      td.textContent = sid;
+      for (let c = 0; c < fl.cols; c++) {
 
-      td.onclick = () => paintSeat(sid);
+        const sid = seatId(f, r, c);
+        const seat = seats[sid];
 
-      tr.appendChild(td);
+        const td = document.createElement('td');
+
+        td.className = 'seat seat-' + seat.type;
+        td.title = sid;
+        td.textContent = sid;
+
+        td.onclick = () => paintSeat(sid);
+
+        tr.appendChild(td);
+      }
+
+      table.appendChild(tr);
     }
 
-    table.appendChild(tr);
+    wrap.appendChild(table);
+  });
+}
+
+
+// controls for floors 2+ (floor 1 uses the Rows / Columns inputs above)
+function renderFloorControls() {
+
+  const list = document.getElementById('floorList');
+  list.innerHTML = '';
+
+  floors.forEach((fl, f) => {
+
+    if (f === 0) return;
+
+    const row = document.createElement('div');
+    row.className = 'floor-row';
+
+    const name = document.createElement('input');
+    name.type = 'text';
+    name.value = fl.name || '';
+    name.placeholder = `Floor ${f + 1}`;
+    name.onchange = () => { fl.name = name.value; renderGrid(); };
+
+    const mk = (key) => {
+      const inp = document.createElement('input');
+      inp.type = 'number';
+      inp.min = 1;
+      inp.max = 30;
+      inp.value = fl[key];
+      inp.title = key;
+      inp.onchange = () => { fl[key] = parseInt(inp.value) || 1; buildGrid(); };
+      return inp;
+    };
+
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'btn';
+    del.textContent = 'Remove';
+    del.onclick = () => removeFloor(f);
+
+    row.append(name, mk('rows'), 'x', mk('cols'), del);
+    list.appendChild(row);
+  });
+}
+
+
+function addFloor() {
+
+  if (floors.length >= 6) {
+    alert('Max 6 floors.');
+    return;
   }
+
+  floors.push({ name: `Floor ${floors.length + 1}`, rows: 4, cols: cols });
+
+  renderFloorControls();
+  buildGrid();
+}
+
+
+function removeFloor(f) {
+
+  // removing a middle floor shifts the ids of the ones above it, so drop the
+  // seats of every floor from f up and let buildGrid() recreate them
+  Object.keys(seats).forEach(sid => {
+    if (/^F\d+R/.test(sid) && parseInt(sid.slice(1)) >= f + 1) delete seats[sid];
+  });
+
+  floors.splice(f, 1);
+
+  renderFloorControls();
+  buildGrid();
 }
 
 
@@ -296,6 +411,7 @@ async function saveVenue() {
 
     rows: rows,
     cols: cols,
+    floors: floors,
     seats: seats
   };
 
@@ -330,6 +446,9 @@ async function saveVenue() {
   }
 }
 
+
+document.getElementById('floor1Name').value = floors[0].name || 'Floor 1';
+renderFloorControls();
 
 if (Object.keys(seats).length === 0) {
   buildGrid(false);

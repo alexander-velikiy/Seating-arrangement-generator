@@ -11,6 +11,12 @@ from enum import Enum, auto
 from typing import Optional
 
 
+def make_seat_id(floor: int, row: int, col: int) -> str:
+    # row / col are 1-based. Floor 1 keeps the plain "R1C1" form so venues saved
+    # before multi-floor support still work; upper floors get "F2R1C1".
+    return f"R{row}C{col}" if floor == 1 else f"F{floor}R{row}C{col}"
+
+
 class ConstraintType(Enum):
     MUST_SIT_TOGETHER      = auto()
     MUST_NOT_SIT_TOGETHER  = auto()
@@ -59,6 +65,7 @@ class Seat:
     col: int
     is_aisle: bool = False
     is_blocked: bool = False
+    floor: int = 1  # row / col are relative to this floor
 
     def __repr__(self) -> str:
         flags = []
@@ -71,27 +78,39 @@ class Seat:
 class GridLayout:
     def __init__(self, rows: int, cols: int,
                  blocked_seats: Optional[list[str]] = None,
-                 aisle_cols: Optional[list[int]] = None):
+                 aisle_cols: Optional[list[int]] = None,
+                 floors: Optional[list[dict]] = None):
+        # rows / cols / aisle_cols describe floor 1. For a multi-floor venue pass
+        # floors=[{"rows": r, "cols": c, "aisle_cols": [...] or None}, ...] in
+        # floor order and each floor gets its own grid and aisle columns.
         self.rows = rows
         self.cols = cols
         blocked_ids: set[str] = set(blocked_seats or [])
-        default_aisle = {0, cols - 1} if cols > 1 else {0}
-        aisle_set = set(aisle_cols) if aisle_cols is not None else default_aisle
+        if floors is None:
+            floors = [{"rows": rows, "cols": cols, "aisle_cols": aisle_cols}]
+        self.floor_count = len(floors)
 
         self.seats: dict[str, Seat] = {}
-        for r in range(rows):
-            for c in range(cols):
-                sid = f"R{r+1}C{c+1}"
-                self.seats[sid] = Seat(
-                    seat_id=sid, row=r, col=c,
-                    is_aisle=(c in aisle_set),
-                    is_blocked=(sid in blocked_ids),
-                )
+        for fi, fl in enumerate(floors):
+            f_cols = fl["cols"]
+            default_aisle = {0, f_cols - 1} if f_cols > 1 else {0}
+            f_aisle = fl.get("aisle_cols")
+            aisle_set = set(f_aisle) if f_aisle is not None else default_aisle
+            for r in range(fl["rows"]):
+                for c in range(f_cols):
+                    sid = make_seat_id(fi + 1, r + 1, c + 1)
+                    self.seats[sid] = Seat(
+                        seat_id=sid, row=r, col=c,
+                        is_aisle=(c in aisle_set),
+                        is_blocked=(sid in blocked_ids),
+                        floor=fi + 1,
+                    )
 
     def available_seats(self) -> list[Seat]:
         return [s for s in self.seats.values() if not s.is_blocked]
 
     def front_row_seats(self) -> list[Seat]:
+        # row 0 of every floor, a balcony has its own front row
         return [s for s in self.available_seats() if s.row == 0]
 
     def aisle_seats(self) -> list[Seat]:
@@ -99,6 +118,8 @@ class GridLayout:
 
     def are_adjacent(self, sid1: str, sid2: str) -> bool:
         s1, s2 = self.seats[sid1], self.seats[sid2]
+        if s1.floor != s2.floor:  # gotcha: R1C1 on floor 2 is not next to R1C1 on floor 1
+            return False
         return (abs(s1.row - s2.row) + abs(s1.col - s2.col)) == 1
 
     def neighbors(self, sid: str) -> list[str]:
@@ -106,7 +127,7 @@ class GridLayout:
         nbrs = []
         for dr, dc in [(-1,0),(1,0),(0,-1),(0,1)]:
             nr, nc = s.row + dr, s.col + dc
-            cand = f"R{nr+1}C{nc+1}"
+            cand = make_seat_id(s.floor, nr + 1, nc + 1)
             if cand in self.seats and not self.seats[cand].is_blocked:
                 nbrs.append(cand)
         return nbrs

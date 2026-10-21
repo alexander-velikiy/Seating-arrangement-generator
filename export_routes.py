@@ -3,6 +3,7 @@
 import csv
 import io
 import json
+import re
 from datetime import datetime
 
 from flask import Blueprint, Response, jsonify, render_template, session
@@ -11,6 +12,17 @@ from auth import login_required
 from database import get_db
 
 export_bp = Blueprint("export_routes", __name__)
+
+# floor 1 ids are "R1C1", upper floors "F2R1C1"
+_SEAT_RE = re.compile(r"^(?:F(\d+))?R(\d+)C(\d+)$")
+
+
+def _split_seat_id(seat_id: str):
+    """-> (floor, row, col) all 1-based, or None if it isn't a seat id."""
+    m = _SEAT_RE.match(seat_id or "")
+    if not m:
+        return None
+    return int(m.group(1) or 1), int(m.group(2)), int(m.group(3))
 
 
 @export_bp.route("/export")
@@ -114,20 +126,18 @@ def export_arrangement_csv(arr_id):
 
     buf = io.StringIO()
     w   = csv.writer(buf)
-    w.writerow(["participant", "group", "seat", "row", "col",
+    w.writerow(["participant", "group", "seat", "floor", "row", "col",
                 "needs_front_row", "needs_aisle", "status"])
 
     if assign:
         for name, seat_id in sorted(assign.items()):
             p = p_map.get(name, {})
-            try:
-                row_n, col_n = seat_id.replace("R", "").split("C")
-            except Exception:
-                row_n = col_n = ""
+            parsed = _split_seat_id(seat_id)
+            floor_n, row_n, col_n = parsed if parsed else ("", "", "")
             w.writerow([
                 name,
                 p.get("group") or p.get("group_name") or "",
-                seat_id, row_n, col_n,
+                seat_id, floor_n, row_n, col_n,
                 "yes" if p.get("needs_front_row") else "no",
                 "yes" if p.get("needs_aisle")     else "no",
                 row["status"],
@@ -138,7 +148,7 @@ def export_arrangement_csv(arr_id):
             w.writerow([
                 p["name"],
                 p.get("group") or p.get("group_name") or "",
-                "", "", "",
+                "", "", "", "",
                 "yes" if p.get("needs_front_row") else "no",
                 "yes" if p.get("needs_aisle")     else "no",
                 row["status"],
@@ -171,18 +181,25 @@ def _build_seating_image(row, fmt: str):
     )
     if venue_row:
         layout      = json.loads(venue_row["layout_json"])
-        grid_rows   = venue_row["rows"]
-        grid_cols   = venue_row["cols"]
+        # venues saved before multi-floor support have no floors key
+        floors      = layout.get("floors") or [
+            {"rows": venue_row["rows"], "cols": venue_row["cols"]}]
         seats_meta  = layout.get("seats", {})
     else:
-        # no venue on record, just infer a grid size from the seat ids we have
-        if assign:
-            ids       = list(assign.values())
-            grid_rows = max(int(s.split("C")[0][1:]) for s in ids)
-            grid_cols = max(int(s.split("C")[1])     for s in ids)
-        else:
-            grid_rows = grid_cols = 1
+        # no venue on record, just infer the floor grids from the seat ids we have
+        dims = {}
+        for s in assign.values():
+            parsed = _split_seat_id(s)
+            if parsed:
+                f, r, c = parsed
+                old_r, old_c = dims.get(f, (1, 1))
+                dims[f] = (max(old_r, r), max(old_c, c))
+        n_floors = max(dims) if dims else 1
+        floors = [{"rows": dims.get(f, (1, 1))[0], "cols": dims.get(f, (1, 1))[1]}
+                  for f in range(1, n_floors + 1)]
         seats_meta = {}
+    multi      = len(floors) > 1
+    grid_cols  = max(f["cols"] for f in floors)
 
     GROUP_PALETTE = [
         (240,165,0),(59,130,246),(34,197,94),(168,85,247),
@@ -201,8 +218,19 @@ def _build_seating_image(row, fmt: str):
     HDR    = 56
     LABEL_W = 34
 
+    # floors are stacked top to bottom; with several floors each one gets a
+    # title line above its column labels (FH), plus some air before the next one
+    FH      = 34 if multi else 0
+    F_SPACE = 48
+    base_y  = HDR + MARGIN//2
+    tops, y_off = [], 0
+    for fl in floors:
+        tops.append(base_y + y_off + FH)  # y of this floor's first row
+        y_off += FH + fl["rows"] * (CELL + GAP) + (F_SPACE if multi else 0)
+    y_end = tops[-1] + floors[-1]["rows"] * (CELL + GAP) - GAP  # bottom of last row
+
     W = MARGIN + LABEL_W + grid_cols * (CELL + GAP) - GAP + MARGIN
-    H = HDR + MARGIN + grid_rows * (CELL + GAP) - GAP + MARGIN
+    H = y_end + 72  # same bottom space the single-floor image always had
 
     BG     = (11, 14, 20)
     PANEL  = (22, 28, 44)
@@ -227,48 +255,55 @@ def _build_seating_image(row, fmt: str):
               f"Status: {row['status'].upper()}  ·  {len(assign)}/{len(parts)} seated",
               font=font_sm, fill=status_color)
 
-    for c in range(grid_cols):
-        cx = MARGIN + LABEL_W + c*(CELL+GAP) + CELL//2
-        draw.text((cx, HDR-14), f"C{c+1}", font=font_sm, fill=MUTED, anchor="mm")
-
     seat_to_name = {v: k for k, v in assign.items()}
 
-    for r in range(grid_rows):
-        ry = HDR + MARGIN//2 + r*(CELL+GAP)
-        draw.text((MARGIN+LABEL_W-6, ry+CELL//2), f"R{r+1}",
-                  font=font_sm, fill=MUTED, anchor="rm")
-        for c in range(grid_cols):
-            sid   = f"R{r+1}C{c+1}"
-            smeta = seats_meta.get(sid, {})
-            x0, y0 = MARGIN+LABEL_W+c*(CELL+GAP), ry
-            x1, y1 = x0+CELL, y0+CELL
-            radius  = 6
+    for f, fl in enumerate(floors):
+        top = tops[f]
+        if multi:
+            fname_txt = (fl.get("name") or "").strip() or f"Floor {f+1}"
+            draw.text((MARGIN, top-58), fname_txt, font=font_bold, fill=TEXT)
 
-            if smeta.get("is_blocked") or smeta.get("type") == "blocked":
-                draw.rounded_rectangle([x0,y0,x1,y1], radius=radius,
-                                       fill=(13,16,23), outline=BORDER)
-                draw.line([x0+12,y0+12,x1-12,y1-12], fill=MUTED, width=2)
-                draw.line([x1-12,y0+12,x0+12,y1-12], fill=MUTED, width=2)
-            elif sid in seat_to_name:
-                pname = seat_to_name[sid]
-                p     = p_map.get(pname, {})
-                color = group_color.get(p.get("group") or p.get("group_name") or "",
-                                        (59,130,246))
-                bg    = tuple(max(0, v-180) for v in color)
-                draw.rounded_rectangle([x0,y0,x1,y1], radius=radius,
-                                       fill=bg, outline=color, width=2)
-                draw.rounded_rectangle([x0,y0,x1,y0+4], radius=2, fill=color)
-                short = pname if len(pname)<=10 else pname[:9]+"…"
-                draw.text((x0+CELL//2, y0+CELL//2), short,
-                          font=font_name, fill=TEXT, anchor="mm")
-            else:
-                oc = (59,80,150) if smeta.get("is_front") else \
-                     (30,90,60)  if smeta.get("is_aisle") else BORDER
-                draw.rounded_rectangle([x0,y0,x1,y1], radius=radius,
-                                       fill=PANEL, outline=oc)
+        for c in range(fl["cols"]):
+            cx = MARGIN + LABEL_W + c*(CELL+GAP) + CELL//2
+            draw.text((cx, top-38), f"C{c+1}", font=font_sm, fill=MUTED, anchor="mm")
+
+        for r in range(fl["rows"]):
+            ry = top + r*(CELL+GAP)
+            draw.text((MARGIN+LABEL_W-6, ry+CELL//2), f"R{r+1}",
+                      font=font_sm, fill=MUTED, anchor="rm")
+            for c in range(fl["cols"]):
+                # floor 1 ids stay R1C1, upper floors are F2R1C1
+                sid   = f"R{r+1}C{c+1}" if f == 0 else f"F{f+1}R{r+1}C{c+1}"
+                smeta = seats_meta.get(sid, {})
+                x0, y0 = MARGIN+LABEL_W+c*(CELL+GAP), ry
+                x1, y1 = x0+CELL, y0+CELL
+                radius  = 6
+
+                if smeta.get("is_blocked") or smeta.get("type") == "blocked":
+                    draw.rounded_rectangle([x0,y0,x1,y1], radius=radius,
+                                           fill=(13,16,23), outline=BORDER)
+                    draw.line([x0+12,y0+12,x1-12,y1-12], fill=MUTED, width=2)
+                    draw.line([x1-12,y0+12,x0+12,y1-12], fill=MUTED, width=2)
+                elif sid in seat_to_name:
+                    pname = seat_to_name[sid]
+                    p     = p_map.get(pname, {})
+                    color = group_color.get(p.get("group") or p.get("group_name") or "",
+                                            (59,130,246))
+                    bg    = tuple(max(0, v-180) for v in color)
+                    draw.rounded_rectangle([x0,y0,x1,y1], radius=radius,
+                                           fill=bg, outline=color, width=2)
+                    draw.rounded_rectangle([x0,y0,x1,y0+4], radius=2, fill=color)
+                    short = pname if len(pname)<=10 else pname[:9]+"…"
+                    draw.text((x0+CELL//2, y0+CELL//2), short,
+                              font=font_name, fill=TEXT, anchor="mm")
+                else:
+                    oc = (59,80,150) if smeta.get("is_front") else \
+                         (30,90,60)  if smeta.get("is_aisle") else BORDER
+                    draw.rounded_rectangle([x0,y0,x1,y1], radius=radius,
+                                           fill=PANEL, outline=oc)
 
     # group legend, if there's room for it
-    leg_x, leg_y = MARGIN, HDR+MARGIN//2+grid_rows*(CELL+GAP)+8
+    leg_x, leg_y = MARGIN, y_end + GAP + 8
     if leg_y+20 < H and groups:
         draw.text((leg_x, leg_y), "Groups: ", font=font_sm, fill=MUTED)
         leg_x += 55

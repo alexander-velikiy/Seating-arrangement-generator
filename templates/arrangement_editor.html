@@ -78,7 +78,7 @@
       <legend>Add Participant</legend>
       <input type="text" id="pName" placeholder="Full name *">
       <input type="text" id="pGroup" placeholder="Group (optional)">
-      <input type="text" id="pSeat" placeholder="Reserved seat, e.g. R1C3 (optional)">
+      <input type="text" id="pSeat" placeholder="Reserved seat, e.g. R1C3 or F2R1C3 (optional)">
       <label><input type="checkbox" id="pFront"> Needs front row</label><br>
       <label><input type="checkbox" id="pAisle"> Needs aisle seat</label>
       <p><button onclick="addParticipant()">+ Add Participant</button></p>
@@ -106,7 +106,7 @@
         Group name: <input type="text" id="cGroup">
       </div>
       <div id="cSeatWrap" style="display:none">
-        Seat ID: <input type="text" id="cSeat" placeholder="e.g. R1C3">
+        Seat ID: <input type="text" id="cSeat" placeholder="e.g. R1C3 or F2R1C3 (balcony)">
       </div>
       <p><button onclick="addConstraint()">+ Add Constraint</button></p>
     </fieldset>
@@ -308,36 +308,46 @@ function renderGrid() {
   const area = document.getElementById('gridArea');
   if (!currentVenueLayout) return;
 
-  const rows = currentVenueLayout.rows;
-  const cols = currentVenueLayout.cols;
   const seats = currentVenueLayout.seats || {};
+  // venues saved before multi-floor support have no floors key
+  const floors = currentVenueLayout.floors
+    || [{ name: 'Floor 1', rows: currentVenueLayout.rows, cols: currentVenueLayout.cols }];
 
   const assign = (currentResult && currentResult.assignment) ? currentResult.assignment : {};
   const seatToName = {};
   Object.entries(assign).forEach(([name, sid]) => { seatToName[sid] = name; });
 
-  const table = document.createElement('table');
-  table.className = 'grid';
-  for (let r = 0; r < rows; r++) {
-    const tr = document.createElement('tr');
-    for (let c = 0; c < cols; c++) {
-      const sid = `R${r + 1}C${c + 1}`;
-      const seat = seats[sid] || { type: 'normal' };
-      const td = document.createElement('td');
-      td.className = 'seat-' + seat.type;
-      if (seatToName[sid]) {
-        td.classList.add('assigned');
-        td.textContent = seatToName[sid];
-      } else {
-        td.textContent = sid;
-      }
-      tr.appendChild(td);
-    }
-    table.appendChild(tr);
-  }
-
   area.innerHTML = '';
-  area.appendChild(table);
+
+  floors.forEach((fl, f) => {
+    if (floors.length > 1) {
+      const h = document.createElement('h4');
+      h.textContent = fl.name || `Floor ${f + 1}`;
+      area.appendChild(h);
+    }
+
+    const table = document.createElement('table');
+    table.className = 'grid';
+    for (let r = 0; r < fl.rows; r++) {
+      const tr = document.createElement('tr');
+      for (let c = 0; c < fl.cols; c++) {
+        // floor 1 ids stay R1C1, upper floors are F2R1C1
+        const sid = f === 0 ? `R${r + 1}C${c + 1}` : `F${f + 1}R${r + 1}C${c + 1}`;
+        const seat = seats[sid] || { type: 'normal' };
+        const td = document.createElement('td');
+        td.className = 'seat-' + seat.type;
+        if (seatToName[sid]) {
+          td.classList.add('assigned');
+          td.textContent = seatToName[sid];
+        } else {
+          td.textContent = sid;
+        }
+        tr.appendChild(td);
+      }
+      table.appendChild(tr);
+    }
+    area.appendChild(table);
+  });
 }
 
 // save / solve   

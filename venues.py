@@ -32,6 +32,7 @@ def build_layout_json(
     rows: int,
     cols: int,
     seats_override: dict | None = None,
+    floors: list | None = None,
 ) -> dict:
     """
     Build the venue layout dict we store as JSON.
@@ -39,41 +40,79 @@ def build_layout_json(
     If seats_override is given (from the editor's save payload) we keep those
     seat states, otherwise every seat gets sensible defaults based on position
     (row 0 = front, first/last column = aisle).
-    """
-    seats: dict[str, dict] = {}
-    for r in range(rows):
-        for c in range(cols):
-            sid      = f"R{r+1}C{c+1}"
-            is_aisle = (c == 0 or c == cols - 1)
-            is_front = (r == 0)
-            default_type = "front" if is_front else ("aisle" if is_aisle else "normal")
 
-            if seats_override and sid in seats_override:
-                seat          = dict(seats_override[sid])
-                seat["id"]    = sid
-                seat["row"]   = r
-                seat["col"]   = c
-                seat["is_front"] = is_front
-                seats[sid]    = seat
-            else:
-                seats[sid] = {
-                    "id":         sid,
-                    "row":        r,
-                    "col":        c,
-                    "type":       default_type,
-                    "label":      "",
-                    "is_blocked": False,
-                    "is_aisle":   is_aisle,
-                    "is_front":   is_front,
-                }
+    floors is optional: [{"name": "Balcony", "rows": 4, "cols": 10}, ...] in
+    floor order. rows / cols (top level and in the DB) always mean floor 1.
+    Floor 1 seat ids stay "R1C1", upper floors are "F2R1C1".
+    """
+    if not floors:
+        floors = [{"rows": rows, "cols": cols}]
+
+    seats: dict[str, dict] = {}
+    for fi, fl in enumerate(floors):
+        f_no, f_rows, f_cols = fi + 1, fl["rows"], fl["cols"]
+        for r in range(f_rows):
+            for c in range(f_cols):
+                sid      = f"R{r+1}C{c+1}" if f_no == 1 else f"F{f_no}R{r+1}C{c+1}"
+                is_aisle = (c == 0 or c == f_cols - 1)
+                is_front = (r == 0)
+                default_type = "front" if is_front else ("aisle" if is_aisle else "normal")
+
+                if seats_override and sid in seats_override:
+                    seat          = dict(seats_override[sid])
+                    seat["id"]    = sid
+                    seat["floor"] = f_no
+                    seat["row"]   = r
+                    seat["col"]   = c
+                    seat["is_front"] = is_front
+                    seats[sid]    = seat
+                else:
+                    seats[sid] = {
+                        "id":         sid,
+                        "floor":      f_no,
+                        "row":        r,
+                        "col":        c,
+                        "type":       default_type,
+                        "label":      "",
+                        "is_blocked": False,
+                        "is_aisle":   is_aisle,
+                        "is_front":   is_front,
+                    }
 
     return {
         "schema_version": "1.0",
         "rows":  rows,
         "cols":  cols,
+        "floors": [
+            {"name": (f.get("name") or f"Floor {i+1}").strip(), "rows": f["rows"], "cols": f["cols"]}
+            for i, f in enumerate(floors)
+        ],
         "seats": seats,
         "stats": compute_stats(seats),
     }
+
+
+def parse_floors(data: dict, rows: int, cols: int):
+    """
+    Read the optional "floors" list from a save payload.
+    Returns (floors, error) — floors is None when the payload has no floors
+    (single-floor venue, old behaviour).
+    """
+    raw = data.get("floors")
+    if not raw:
+        return None, None
+    if not isinstance(raw, list) or len(raw) > 6:
+        return None, "floors must be a list of at most 6 floors"
+    floors = []
+    for f in raw:
+        try:
+            f_rows, f_cols = int(f["rows"]), int(f["cols"])
+        except (KeyError, TypeError, ValueError):
+            return None, "each floor needs rows and cols"
+        if not (1 <= f_rows <= 30 and 1 <= f_cols <= 30):
+            return None, "rows and cols must be between 1 and 30"
+        floors.append({"name": str(f.get("name") or ""), "rows": f_rows, "cols": f_cols})
+    return floors, None
 
 
 def venue_to_api(row) -> dict:
@@ -155,9 +194,14 @@ def api_venue_create():
         return jsonify({"error": "name is required"}), 400
     if not (1 <= rows <= 30 and 1 <= cols <= 30):
         return jsonify({"error": "rows and cols must be between 1 and 30"}), 400
+    floors, floors_err = parse_floors(data, rows, cols)
+    if floors_err:
+        return jsonify({"error": floors_err}), 400
+    if floors:  # floor 1 is what the DB rows / cols columns hold
+        rows, cols = floors[0]["rows"], floors[0]["cols"]
 
     now    = datetime.utcnow().isoformat()
-    layout = build_layout_json(rows, cols, seats_override=seats_data)
+    layout = build_layout_json(rows, cols, seats_override=seats_data, floors=floors)
     layout["metadata"] = {
         "created_at": now, "updated_at": now,
         "venue_type": venue_type, "name": name, "description": description,
@@ -212,10 +256,21 @@ def api_venue_update(venue_id):
         return jsonify({"error": "name is required"}), 400
     if not (1 <= rows <= 30 and 1 <= cols <= 30):
         return jsonify({"error": "rows and cols must be between 1 and 30"}), 400
+    floors, floors_err = parse_floors(data, rows, cols)
+    if floors_err:
+        return jsonify({"error": floors_err}), 400
+    old_layout = json.loads(venue["layout_json"])
+    if not floors and len(old_layout.get("floors") or []) > 1:
+        # payload has no floors (older client): keep the stored ones, only
+        # floor 1 takes the rows / cols from the payload
+        floors = [dict(f) for f in old_layout["floors"]]
+        floors[0]["rows"], floors[0]["cols"] = rows, cols
+    if floors:
+        rows, cols = floors[0]["rows"], floors[0]["cols"]
 
     now        = datetime.utcnow().isoformat()
-    old_meta   = json.loads(venue["layout_json"]).get("metadata") or {}
-    layout     = build_layout_json(rows, cols, seats_override=seats_data)
+    old_meta   = old_layout.get("metadata") or {}
+    layout     = build_layout_json(rows, cols, seats_override=seats_data, floors=floors)
     layout["metadata"] = {
         **old_meta,
         "updated_at": now, "venue_type": venue_type,
