@@ -11,6 +11,11 @@ from enum import Enum, auto
 from typing import Optional
 
 
+def make_seat_id(floor: int, row: int, col: int) -> str:
+    # support for no floor indicator
+    return f"R{row}C{col}" if floor == 1 else f"F{floor}R{row}C{col}"
+
+
 class ConstraintType(Enum):
     MUST_SIT_TOGETHER      = auto()
     MUST_NOT_SIT_TOGETHER  = auto()
@@ -59,6 +64,7 @@ class Seat:
     col: int
     is_aisle: bool = False
     is_blocked: bool = False
+    floor: int = 1  # row / col are relative to this floor
 
     def __repr__(self) -> str:
         flags = []
@@ -71,22 +77,30 @@ class Seat:
 class GridLayout:
     def __init__(self, rows: int, cols: int,
                  blocked_seats: Optional[list[str]] = None,
-                 aisle_cols: Optional[list[int]] = None):
+                 aisle_cols: Optional[list[int]] = None,
+                 floors: Optional[list[dict]] = None):
         self.rows = rows
         self.cols = cols
         blocked_ids: set[str] = set(blocked_seats or [])
-        default_aisle = {0, cols - 1} if cols > 1 else {0}
-        aisle_set = set(aisle_cols) if aisle_cols is not None else default_aisle
+        if floors is None:
+            floors = [{"rows": rows, "cols": cols, "aisle_cols": aisle_cols}]
+        self.floor_count = len(floors)
 
         self.seats: dict[str, Seat] = {}
-        for r in range(rows):
-            for c in range(cols):
-                sid = f"R{r+1}C{c+1}"
-                self.seats[sid] = Seat(
-                    seat_id=sid, row=r, col=c,
-                    is_aisle=(c in aisle_set),
-                    is_blocked=(sid in blocked_ids),
-                )
+        for fi, fl in enumerate(floors):
+            f_cols = fl["cols"]
+            default_aisle = {0, f_cols - 1} if f_cols > 1 else {0}
+            f_aisle = fl.get("aisle_cols")
+            aisle_set = set(f_aisle) if f_aisle is not None else default_aisle
+            for r in range(fl["rows"]):
+                for c in range(f_cols):
+                    sid = make_seat_id(fi + 1, r + 1, c + 1)
+                    self.seats[sid] = Seat(
+                        seat_id=sid, row=r, col=c,
+                        is_aisle=(c in aisle_set),
+                        is_blocked=(sid in blocked_ids),
+                        floor=fi + 1,
+                    )
 
     def available_seats(self) -> list[Seat]:
         return [s for s in self.seats.values() if not s.is_blocked]
@@ -99,6 +113,8 @@ class GridLayout:
 
     def are_adjacent(self, sid1: str, sid2: str) -> bool:
         s1, s2 = self.seats[sid1], self.seats[sid2]
+        if s1.floor != s2.floor:
+            return False
         return (abs(s1.row - s2.row) + abs(s1.col - s2.col)) == 1
 
     def neighbors(self, sid: str) -> list[str]:
@@ -106,7 +122,7 @@ class GridLayout:
         nbrs = []
         for dr, dc in [(-1,0),(1,0),(0,-1),(0,1)]:
             nr, nc = s.row + dr, s.col + dc
-            cand = f"R{nr+1}C{nc+1}"
+            cand = make_seat_id(s.floor, nr + 1, nc + 1)
             if cand in self.seats and not self.seats[cand].is_blocked:
                 nbrs.append(cand)
         return nbrs
@@ -152,7 +168,7 @@ class SeatingCSP:
                     f"No valid seats for participant {name!r} after applying individual constraints.")
             self.domains[name] = domain
 
-        # SPECIFIC_SEAT / RESERVED_SEAT constraints narrow domains further.
+        # SPECIFIC_SEAT / RESERVED_SEAT constraints, narrow domains.
         for c in self.constraints:
             if c.constraint_type == ConstraintType.SPECIFIC_SEAT:
                 for pname in c.participants:
@@ -245,8 +261,7 @@ class SeatingCSP:
                     if any(self.layout.are_adjacent(seat_id, s) for s in group_seats):
                         return False
                 elif ctype == ConstraintType.SAME_GROUP_TOGETHER:
-                    # Once one group member is seated, later ones must be
-                    # adjacent to the existing cluster.
+                    # Once one group member is seated, later ones must be adjacent to the existing cluster.
                     if group_seats and not any(
                         self.layout.are_adjacent(seat_id, s) for s in group_seats
                     ):
@@ -322,16 +337,15 @@ class SeatingCSP:
         return None
 
     def solve(self) -> Optional[dict[str, str]]:
-        # Snapshot domains after AC-3 runs, not before, so backtracking
-        # starts from the pruned state.
+        # Snapshot domains after AC-3 runs so backtracking starts from the pruned state.
         if not self._ac3():
             return None
         working_domains = copy.deepcopy(self.domains)
         return self._backtrack({}, working_domains)
 
     def _verify(self, assignment: dict[str, str]) -> list[str]:
-        # Final consistency check. Also the only place FRONT_ROW is enforced —
-        # needs_front_row on Participant handles it during search instead.
+        # Final consistency check
+        #TODO enfore better 
         violations = []
         for c in self.constraints:
             ctype = c.constraint_type
@@ -388,7 +402,6 @@ class SeatingCSP:
                     if p.group == c.group and n in assignment
                 ]
                 if len(grp_members) > 1:
-                    # "Together" means one connected block, not scattered seats.
                     remaining = set(grp_members[1:])
                     frontier  = [grp_members[0]]
                     reached   = {grp_members[0]}

@@ -12,7 +12,7 @@ from seating_csp import (
 )
 
 
-# string from the frontend -> ConstraintType enum
+# ConstraintType enum
 _CTYPE_MAP: dict[str, ConstraintType] = {
     "MUST_SIT_TOGETHER":     ConstraintType.MUST_SIT_TOGETHER,
     "MUST_NOT_SIT_TOGETHER": ConstraintType.MUST_NOT_SIT_TOGETHER,
@@ -36,16 +36,23 @@ def build_csp_layout(venue_row) -> GridLayout:
         sid for sid, s in seats.items()
         if s.get("is_blocked") or s.get("type") == "blocked"
     ]
-    aisle_cols_set: set[int] = set()
+    # support for no floor layout
+    floors = [dict(f) for f in layout.get("floors") or [{"rows": rows, "cols": cols}]]
+
+    # aisle cols are per floor 
+    aisle_by_floor: dict[int, set[int]] = {}
     for s in seats.values():
         if s.get("is_aisle") or s.get("type") == "aisle":
-            aisle_cols_set.add(s["col"])  # 0-based
+            aisle_by_floor.setdefault(s.get("floor", 1), set()).add(s["col"])
+    for i, fl in enumerate(floors):
+        found = aisle_by_floor.get(i + 1)
+        fl["aisle_cols"] = list(found) if found else None
 
     return GridLayout(
-        rows=rows,
-        cols=cols,
+        rows=floors[0]["rows"],
+        cols=floors[0]["cols"],
         blocked_seats=blocked,
-        aisle_cols=list(aisle_cols_set) if aisle_cols_set else None,
+        floors=floors,
     )
 
 
