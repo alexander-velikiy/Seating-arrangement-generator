@@ -39,14 +39,20 @@ def build_csp_layout(venue_row) -> GridLayout:
     # support for no floor layout
     floors = [dict(f) for f in layout.get("floors") or [{"rows": rows, "cols": cols}]]
 
-    # aisle cols are per floor 
-    aisle_by_floor: dict[int, set[int]] = {}
+    aisle_by_floor: dict[int, set[tuple[int, int]]] = {}
+    front_by_floor: dict[int, set[int]] = {}
     for s in seats.values():
+        fno = s.get("floor", 1)
         if s.get("is_aisle") or s.get("type") == "aisle":
-            aisle_by_floor.setdefault(s.get("floor", 1), set()).add(s["col"])
+            aisle_by_floor.setdefault(fno, set()).add((s["row"], s["col"]))
+        if s.get("type") == "front" and not s.get("is_blocked"):
+            front_by_floor.setdefault(fno, set()).add(s["row"])
     for i, fl in enumerate(floors):
         found = aisle_by_floor.get(i + 1)
-        fl["aisle_cols"] = list(found) if found else None
+        fl["aisle_cells"] = sorted(found) if found else None
+        # allow only first or last row
+        fr = front_by_floor.get(i + 1, set())
+        fl["front_row"] = next(iter(fr)) if len(fr) == 1 else 0
 
     return GridLayout(
         rows=floors[0]["rows"],

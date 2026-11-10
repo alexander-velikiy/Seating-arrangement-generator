@@ -56,7 +56,8 @@ def build_layout_json(
                     seat["floor"] = f_no
                     seat["row"]   = r
                     seat["col"]   = c
-                    seat["is_front"] = is_front
+                    # front row is last or first row
+                    seat["is_front"] = (seat["type"] == "front") if "type" in seat else is_front
                     seats[sid]    = seat
                 else:
                     seats[sid] = {
@@ -187,7 +188,7 @@ def api_venue_create():
     floors, floors_err = parse_floors(data, rows, cols)
     if floors_err:
         return jsonify({"error": floors_err}), 400
-    if floors:  # floor 1 is what the DB rows / cols columns hold
+    if floors:  # floor 1 is what the DB holds
         rows, cols = floors[0]["rows"], floors[0]["cols"]
 
     now    = datetime.utcnow().isoformat()
@@ -251,8 +252,6 @@ def api_venue_update(venue_id):
         return jsonify({"error": floors_err}), 400
     old_layout = json.loads(venue["layout_json"])
     if not floors and len(old_layout.get("floors") or []) > 1:
-        # payload has no floors (older client): keep the stored ones, only
-        # floor 1 takes the rows / cols from the payload
         floors = [dict(f) for f in old_layout["floors"]]
         floors[0]["rows"], floors[0]["cols"] = rows, cols
     if floors:
