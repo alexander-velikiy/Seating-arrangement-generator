@@ -24,7 +24,7 @@
 
   {% set vtype = venue.venue_type if venue else 'classroom' %}
 
-  <select id="venueType">
+  <select id="venueType" onchange="onTypeChange()">
     <option value="classroom"  {{ 'selected' if vtype == 'classroom' }}>Classroom</option>
     <option value="auditorium" {{ 'selected' if vtype == 'auditorium' }}>Auditorium</option>
     <option value="exam_hall"  {{ 'selected' if vtype == 'exam_hall' }}>Exam Hall</option>
@@ -32,6 +32,7 @@
     <option value="theater"    {{ 'selected' if vtype == 'theater' }}>Theater</option>
     <option value="event_hall" {{ 'selected' if vtype == 'event_hall' }}>Event Hall</option>
   </select>
+  <p id="presetHint" style="font-size:12px; color:#666; margin-bottom:10px;"></p>
 
   <label for="gridRows">Rows</label>
   <input
@@ -78,6 +79,10 @@
 
   <button id="tool-exit" class="btn" onclick="setTool('exit')">
     Exit
+  </button>
+
+  <button class="btn" onclick="resetToPreset()">
+    Reset to preset
   </button>
 
   <p>Click a seat to apply the selected tool.</p>
@@ -150,6 +155,11 @@
 
 const VENUE_ID = {{ venue.id if venue else 'null' }};
 
+const PRESETS = {{ presets | tojson }};
+
+let dirty = false;
+let lastType = document.getElementById('venueType').value;
+
 let rows;
 let cols;
 let seats;
@@ -212,6 +222,7 @@ function buildGrid(keepExisting = true) {
   }
 
   seats = newSeats;
+  dirty = true;
 
   renderGrid();
 }
@@ -252,8 +263,59 @@ function paintSeat(sid) {
 
   seats[sid].type = currentTool;
   seats[sid].is_blocked = currentTool === 'blocked';
+  dirty = true;
 
   renderGrid();
+}
+
+
+function applyPreset(type) {
+
+  const p = PRESETS[type];
+  if (!p) return;
+  const upper = {};
+  Object.keys(seats).forEach(sid => {
+    if (/^F\d/.test(sid)) upper[sid] = seats[sid];
+  });
+
+  rows = p.rows;
+  cols = p.cols;
+  seats = Object.assign(JSON.parse(JSON.stringify(p.seats)), upper);
+
+  document.getElementById('gridRows').value = rows;
+  document.getElementById('gridCols').value = cols;
+  document.getElementById('presetHint').textContent = p.description;
+
+  dirty = false;
+  renderGrid();
+}
+
+
+function onTypeChange() {
+
+  const sel  = document.getElementById('venueType');
+  const type = sel.value;
+  const p    = PRESETS[type];
+
+  if (p && dirty && !confirm(`Replace the current grid with the ${p.label} layout?`)) {
+    sel.value = lastType;   
+    return;
+  }
+
+  lastType = type;
+  applyPreset(type);
+}
+
+
+function resetToPreset() {
+
+  const type = document.getElementById('venueType').value;
+
+  if (dirty && !confirm('Discard your changes and go back to the preset layout?')) {
+    return;
+  }
+
+  applyPreset(type);
 }
 
 
@@ -332,9 +394,12 @@ async function saveVenue() {
 
 
 if (Object.keys(seats).length === 0) {
-  buildGrid(false);
+  applyPreset(document.getElementById('venueType').value);
 } else {
   renderGrid();
+  dirty = true;  
+  const p = PRESETS[document.getElementById('venueType').value];
+  if (p) document.getElementById('presetHint').textContent = p.description;
 }
 
 </script>

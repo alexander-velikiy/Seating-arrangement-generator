@@ -10,6 +10,7 @@ from flask import (
 
 from auth import login_required
 from database import get_db
+from venue_presets import all_presets, build_preset_seats
 
 venues_bp = Blueprint("venues", __name__)
 
@@ -139,7 +140,7 @@ def venues_list():
 def venue_new():
     db   = get_db()
     user = db.execute("SELECT * FROM users WHERE id = ?", (session["user_id"],)).fetchone()
-    return render_template("venue_editor.html", user=user, venue=None)
+    return render_template("venue_editor.html", user=user, venue=None, presets=all_presets())
 
 
 @venues_bp.route("/venues/<int:venue_id>/edit")
@@ -154,7 +155,7 @@ def venue_edit(venue_id):
     if not venue:
         flash("Venue not found.", "error")
         return redirect(url_for("venues.venues_list"))
-    return render_template("venue_editor.html", user=user, venue=venue)
+    return render_template("venue_editor.html", user=user, venue=venue, presets=all_presets())
 
 
 #    json api   
@@ -180,6 +181,10 @@ def api_venue_create():
     rows        = int(data.get("rows", 5))
     cols        = int(data.get("cols", 6))
     seats_data  = data.get("seats")
+
+    preset = build_preset_seats(venue_type)
+    if preset and seats_data is None and not any(k in data for k in ("rows", "cols", "floors")):
+        rows, cols, seats_data = preset
 
     if not name:
         return jsonify({"error": "name is required"}), 400
