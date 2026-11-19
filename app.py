@@ -16,6 +16,7 @@ from participants import participants_bp
 from arrangements import arrangements_bp
 from export_routes import export_bp
 from admin import admin_bp
+from sharing import sharing_bp
 
 
 def create_app() -> Flask:
@@ -24,7 +25,7 @@ def create_app() -> Flask:
 
     app.jinja_env.filters["from_json"] = json.loads
 
-    # close the sqlite connection after each request
+    # for db connection closing
     app.teardown_appcontext(close_db)
 
     app.register_blueprint(auth_bp)
@@ -34,6 +35,7 @@ def create_app() -> Flask:
     app.register_blueprint(arrangements_bp)
     app.register_blueprint(export_bp)
     app.register_blueprint(admin_bp)
+    app.register_blueprint(sharing_bp)
 
     # uptime check
     @app.route("/api/health")

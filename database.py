@@ -11,11 +11,9 @@ from flask import g
 DB_PATH = os.path.join(os.path.dirname(__file__), "seating.db")
 
 ADMIN_USERNAME = "admin"
-ADMIN_DEFAULT_PASSWORD = "admin"  # seeded account must change this on first login
-
+ADMIN_DEFAULT_PASSWORD = "admin" 
 
 def get_db():
-    # one connection per request, cached on flask's g
     if "db" not in g:
         g.db = sqlite3.connect(DB_PATH, detect_types=sqlite3.PARSE_DECLTYPES)
         g.db.row_factory = sqlite3.Row
@@ -29,16 +27,13 @@ def close_db(exc=None):
 
 
 def _hash_password(password: str) -> str:
-    # mirrors auth.hash_password exactly (same salt$hash format) — duplicated
-    # here rather than imported, since auth.py imports get_db from this module
-    # and importing back would create a circular import
+
     salt = secrets.token_hex(16)
     dk = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 260_000)
     return f"{salt}${dk.hex()}"
 
 
 def init_db():
-    # run once at startup, creates tables if they don't exist yet
     db = sqlite3.connect(DB_PATH)
 
     db.execute("""
@@ -53,9 +48,6 @@ def init_db():
         )
     """)
 
-    # migration for DBs created before force_password_change existed —
-    # CREATE TABLE IF NOT EXISTS is a no-op on an existing table, so this
-    # covers upgrades from an older seating.db
     try:
         db.execute(
             "ALTER TABLE users ADD COLUMN force_password_change INTEGER NOT NULL DEFAULT 0"
@@ -121,8 +113,15 @@ def init_db():
         )
     """)
 
-    # seed the built-in admin account on first run — fixed credentials,
-    # forced to change the password on first login
+    try:
+        db.execute("ALTER TABLE arrangements ADD COLUMN share_token TEXT")
+    except sqlite3.OperationalError:
+        pass  
+    db.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_arrangements_share_token"
+        " ON arrangements(share_token)"
+    )
+
     existing_admin = db.execute(
         "SELECT id FROM users WHERE username = ?", (ADMIN_USERNAME,)
     ).fetchone()

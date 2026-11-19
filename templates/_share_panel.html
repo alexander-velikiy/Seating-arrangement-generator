@@ -1,0 +1,61 @@
+{# included by arrangement_editor.html (saved arrangements only). uses the editor's global currentArrId #}
+<fieldset id="sharePanel">
+  <legend>Share</legend>
+  <p id="shareState" style="font-size:12px;margin:0 0 6px">Checking…</p>
+  <div id="shareLinkWrap" style="display:none">
+    <input type="text" id="shareUrl" readonly onclick="this.select()">
+    <button onclick="copyShareLink()" id="shareCopyBtn">Copy link</button>
+    <button onclick="stopSharing()">Stop sharing</button>
+  </div>
+  <button id="shareBtn" onclick="startSharing()" style="display:none">Create share link</button>
+  <p style="font-size:11px;color:#666;margin:6px 0 0">
+    Anyone with the link can view this arrangement (read-only) without an account.
+    Saved changes show up on the link; re-run the solver to refresh the seats.
+  </p>
+</fieldset>
+
+<script>
+function renderShare(data) {
+  const on = !!(data && data.shared);
+  document.getElementById('shareLinkWrap').style.display = on ? '' : 'none';
+  document.getElementById('shareBtn').style.display = on ? 'none' : '';
+  document.getElementById('shareState').textContent = on ? 'Link sharing is ON.' : 'Not shared.';
+  if (on) document.getElementById('shareUrl').value = data.url;
+}
+
+async function loadShare() {
+  const res = await fetch(`/api/arrangements/${currentArrId}/share`);
+  if (res.ok) renderShare(await res.json());
+  else document.getElementById('shareState').textContent = 'Could not load share status.';
+}
+
+async function startSharing() {
+  const res = await fetch(`/api/arrangements/${currentArrId}/share`, { method: 'POST' });
+  if (res.ok) renderShare(await res.json());
+  else alert('Could not create the link.');
+}
+
+async function stopSharing() {
+  if (!confirm('Stop sharing? The current link will stop working.')) return;
+  const res = await fetch(`/api/arrangements/${currentArrId}/share`, { method: 'DELETE' });
+  if (res.ok) renderShare(await res.json());
+  else alert('Could not turn sharing off.');
+}
+
+async function copyShareLink() {
+  const input = document.getElementById('shareUrl');
+  try {
+    await navigator.clipboard.writeText(input.value);
+  } catch (e) {
+    input.select();  // clipboard API needs https/localhost, fall back to manual copy
+    document.execCommand('copy');
+  }
+  const btn = document.getElementById('shareCopyBtn');
+  btn.textContent = 'Copied!';
+  setTimeout(() => { btn.textContent = 'Copy link'; }, 1500);
+}
+
+// editor's own script (where currentArrId is declared) sits at the bottom of the
+// body, so wait for it instead of calling loadShare() right away
+document.addEventListener('DOMContentLoaded', loadShare);
+</script>
